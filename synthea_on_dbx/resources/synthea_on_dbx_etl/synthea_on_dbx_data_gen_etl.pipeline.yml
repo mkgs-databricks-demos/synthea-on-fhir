@@ -1,0 +1,14 @@
+# The main pipeline for synthea_on_dbx
+
+resources:
+  pipelines:
+    synthea_on_dbx_data_gen_etl:
+      name: Synthea On DBX Data Generation ETL
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.data_gen_schema.name}
+      serverless: true
+      root_path: "."
+
+      libraries:
+        - glob:
+            include: transformations/**

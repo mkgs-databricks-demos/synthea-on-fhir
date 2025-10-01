@@ -1,0 +1,6 @@
+resources:
+  volumes:
+    landing_volume:
+      catalog_name: ${var.catalog}
+      name: ${var.volume}
+      schema_name: ${resources.schemas.data_gen_schema.name}

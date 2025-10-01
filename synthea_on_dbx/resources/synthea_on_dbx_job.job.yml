@@ -1,0 +1,21 @@
+# The job that triggers synthea_on_dbx_etl.
+
+resources:
+  jobs:
+    synthea_on_dbx_job:
+      name: synthea_on_dbx_job
+
+      trigger:
+        # Run this job every day, exactly one day from the last run; see https://docs.databricks.com/api/workspace/jobs/create#trigger
+        periodic:
+          interval: 1
+          unit: DAYS
+
+      #email_notifications:
+      #  on_failure:
+      #    - your_email@example.com
+
+      tasks:
+        - task_key: refresh_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.synthea_on_dbx_data_gen_etl.id}

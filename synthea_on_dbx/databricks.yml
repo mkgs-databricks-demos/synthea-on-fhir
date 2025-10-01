@@ -1,0 +1,104 @@
+# This is a Databricks asset bundle definition for synthea_on_dbx.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+bundle:
+  name: synthea_on_dbx
+  uuid: a2e95147-3f97-4851-a09e-eeb6baf922d4
+
+include:
+  - resources/*.yml
+  - resources/*/*.yml
+
+# Variable declarations. These variables are assigned in the dev/prod targets below.
+variables:
+  catalog:
+    description: The catalog to use
+  schema:
+    description: The schema to use
+  volume:
+    description: The primary volume to use for landing new data files to be ingested by the Lafeflow Declaritive Pipelines. 
+    default: landing
+  # ml_model_name: 
+  #   description: The name of the machine learning model in the Unity Catalog model registry.  
+  # model_storage_location_volume:
+  #   description: The name of the volume in the primary catalog and schema that serves as the storage location for any model artifact files to be written. 
+  #   default: ml_artifacts 
+  notifications:
+    description: The email addresses to use for failure notifications
+  run_as_user:
+    description: The user that the workflows or other assets should run as, may typcially have ownership over the assets.  
+  run_as_user_permissions:
+    description: Permission grants to be given to the run_as_user of the target workspace. 
+  user_permissions: 
+    description: Permission grants to be given to the users group of the target workspace.  
+  serverless_environment_version: 
+    default: "4"
+    description: The Serverless Environment version to use with serverless workflows.  
+  tags_parentProject: 
+    default: snythea-on-fhir
+    description: The name of the parent project used for tagging deployed resources. 
+  tags_project:
+    default: synthea_on_dbx
+    description: The name of the project/subproject used for tagging deployed resources.
+  tags_businessUnit: 
+    default: "Healthcare and Life Sciences"
+    description: The business or accounting unit assigned.  
+  tags_RemoveAfter: 
+    default: 2026-10-01
+    description: Date the resources may be destroyed safely.  Defaults to one year after deployment. 
+  tags_developer: 
+    default: matthew.giglia@databricks.com
+    description: Original developer or developers for Ops contacts
+  tags_requestedBy:
+    default: Databricks
+    description: Team, company or stakeholders that requested the project.
+
+targets:
+  dev:
+    # The default target uses 'mode: development' to create a development copy.
+    # - Deployed resources get prefixed with '[dev my_user_name]'
+    # - Any job schedules and triggers are paused by default.
+    # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
+    mode: development
+    presets:
+      name_prefix: '[${bundle.target} ${workspace.current_user.short_name}] '
+      source_linked_deployment: true
+      trigger_pause_status: PAUSED
+      jobs_max_concurrent_runs: 1
+      pipelines_development: true
+      tags:
+        parentProject: ${var.tags_parentProject}
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+    default: true
+    workspace:
+      host: https://dbc-e5684c0a-20fa.cloud.databricks.com
+    permissions:
+      - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
+      - group_name: users
+        level: CAN_VIEW
+    variables:
+      catalog: synthea_${bundle.target}
+      schema: data_gen
+      notifications: []
+      run_as_user: matthew.giglia@databricks.com
+      run_as_user_permissions: ["CAN_MANAGE", "CAN_RUN", "CAN_MANAGE_RUN"]
+      user_permissions: ["CAN_READ", "CAN_VIEW"]
+
+  
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-e5684c0a-20fa.cloud.databricks.com
+      # We explicitly deploy to /Workspace/Users/matthew.giglia@databricks.com to make sure we only have a single copy.
+      root_path: /Workspace/Users/matthew.giglia@databricks.com/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: prod
+    permissions:
+      - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
