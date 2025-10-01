@@ -1,0 +1,6 @@
+resources:
+  volumes:
+    synthetic_files_raw:
+      catalog_name: ${var.catalog}
+      name: synthetic_files_raw
+      schema_name: ${resources.schemas.data_gen_schema.name}
