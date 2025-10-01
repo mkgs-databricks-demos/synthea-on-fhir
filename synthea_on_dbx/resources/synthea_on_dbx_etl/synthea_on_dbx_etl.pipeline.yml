@@ -1,0 +1,14 @@
+# The main pipeline for synthea_on_dbx
+
+resources:
+  pipelines:
+    synthea_on_dbx_etl:
+      name: synthea_on_dbx_etl
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      root_path: "."
+
+      libraries:
+        - glob:
+            include: transformations/**
