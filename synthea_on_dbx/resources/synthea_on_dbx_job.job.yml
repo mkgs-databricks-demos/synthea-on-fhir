@@ -39,6 +39,15 @@ resources:
           notebook_task: 
             notebook_path: ../src/0.1-uc-setup.ipynb
           environment_key: primary
+          depends_on:
+            - task_key: set_up_check
+          
+        - task_key: install_synthea
+          notebook_task: 
+            notebook_path: ../src/0.2-install-synthea.ipynb
+          environment_key: primary
+          depends_on:
+            - task_key: uc_setup
 
 
 
