@@ -43,7 +43,7 @@ variables:
     default: "Healthcare and Life Sciences"
     description: The business or accounting unit assigned.  
   tags_RemoveAfter: 
-    default: 2026-10-01
+    default: 2027-01-27
     description: Date the resources may be destroyed safely.  Defaults to one year after deployment. 
   tags_developer: 
     default: matthew.giglia@databricks.com
@@ -82,8 +82,8 @@ targets:
       - group_name: users
         level: CAN_VIEW
     variables:
-      catalog: synthea_${bundle.target}
-      schema: data_gen
+      catalog: mkgs_dev
+      schema: synthea_data_gen
       notifications: []
       run_as_user: matthew.giglia@databricks.com
       run_as_user_permissions: ["CAN_MANAGE", "CAN_RUN", "CAN_MANAGE_RUN"]
