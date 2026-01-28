@@ -10,12 +10,28 @@ resources:
         periodic:
           interval: 1
           unit: DAYS
+      
+      environments:
+        - environment_key: primary
+          spec:
+            environment_version: ${var.serverless_environment_version}
+            dependencies: []
 
       #email_notifications:
       #  on_failure:
       #    - your_email@example.com
+      
+      parameters:
+        - name: catalog_use
+          default: ${var.catalog}
+        - name: schema_use 
+          default: ${resources.schemas.ames_housing_schema.name}
+        - name: volume_path_use
+          default: ${resources.volumes.ames_housing_landing_volume.volume_path}
 
       tasks:
-        - task_key: refresh_pipeline
-          pipeline_task:
-            pipeline_id: ${resources.pipelines.synthea_on_dbx_data_gen_etl.id}
+        - task_key: set_up_check
+          notebook_task: 
+            notebook_path: ../src/0.0-set-up-check.ipynb
+          # note the at the environment for notebook tasks is part of the notebook itself. 
+          environment_key: make_ames

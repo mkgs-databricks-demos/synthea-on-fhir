@@ -17,6 +17,9 @@ variables:
   volume:
     description: The primary volume to use for landing new data files to be ingested by the Lafeflow Declaritive Pipelines. 
     default: landing
+  serverless_environment_version: 
+    default: "4"
+    description: The Serverless Environment version to use with serverless workflows.  
   # ml_model_name: 
   #   description: The name of the machine learning model in the Unity Catalog model registry.  
   # model_storage_location_volume:
