@@ -32,19 +32,19 @@ resources:
       tasks:
         - task_key: set_up_check
           notebook_task: 
-            notebook_path: ../src/0.0-set-up-check.ipynb
+            notebook_path: ../src/0.0-set-up-check.py
           environment_key: primary
 
         - task_key: uc_setup
           notebook_task: 
-            notebook_path: ../src/0.1-uc-setup.ipynb
+            notebook_path: ../src/0.1-uc-setup.py
           environment_key: primary
           depends_on:
             - task_key: set_up_check
           
         - task_key: install_synthea
           notebook_task: 
-            notebook_path: ../src/0.2-install-synthea.ipynb
+            notebook_path: ../src/0.2-install-synthea.py
           environment_key: primary
           depends_on:
             - task_key: uc_setup
