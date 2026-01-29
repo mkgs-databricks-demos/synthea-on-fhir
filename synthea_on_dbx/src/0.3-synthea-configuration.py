@@ -92,7 +92,10 @@ config_file_text = (
 f"""# synthea streaming simulation configuration file
 exporter.ccda.export = {ccda}
 exporter.fhir.export = {fhir}
-exporter.bfd.export = {bfd}
+# exporter.bfd.export = {bfd}
+# exporter.bfd.require_code_maps = true
+# exporter.cpcds.export = true
+# exporter.cpcds.folder_per_run = true
 exporter.csv.export = {csv}
 exporter.csv.folder_per_run = {csv_folder_per_run}
 exporter.baseDirectory = {destination}
