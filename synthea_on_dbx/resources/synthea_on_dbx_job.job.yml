@@ -73,6 +73,15 @@ resources:
           depends_on:
             - task_key: install_synthea
 
+        - task_key: generate_bundles
+          depends_on:
+            - task_key: synthea_installed
+              outcome: "true"
+            - task_key: set_configuration
+          run_if: AT_LEAST_ONE_SUCCESS
+          notebook_task:
+            notebook_path: ../src/1.0-synthea-data-generator
+
 
 
 
