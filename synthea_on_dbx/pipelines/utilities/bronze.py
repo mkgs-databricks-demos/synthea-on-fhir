@@ -44,9 +44,9 @@ class Bronze:
       """
 
       if self.volume_sub_path == None:
-        volume_path = f"/Volumes/{self.catalog}/{self.schema}/{self.volume}/{self.resource_type}"
+        volume_path = f"{self.volume}/{self.resource_type}"
       else:
-        volume_path = f"/Volumes/{self.catalog}/{self.schema}/{self.volume}/{self.volume_sub_path}/{self.resource_type}"
+        volume_path = f"{self.volume}/{self.volume_sub_path}/{self.resource_type}"
 
       @dlt.table(
         name=f"{self.catalog}.{self.schema}.{self.resource_type}_bronze",

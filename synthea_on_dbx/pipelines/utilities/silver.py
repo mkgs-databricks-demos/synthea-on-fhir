@@ -48,7 +48,7 @@ class Silver:
       # cluster_by = ["colname_1", "colname_2"],
       ,schema=table_schema
       # row_filter = "row-filter-clause",
-      ,temporary=True
+      ,temporary=False
     )
     # @dlt.expect(...)
     def transform_and_stage_function():
