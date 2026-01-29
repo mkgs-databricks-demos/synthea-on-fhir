@@ -16,11 +16,11 @@ resources:
             include: ../pipelines/transformations/stage.py
         - glob:
             include: ../pipelines/transformations/encounters.sql
-      schema: ${var.pipeline_schema_use}
+      schema: ${resources.schemas.data_gen_schema.name}
       development: true
       photon: true
       channel: PREVIEW
-      catalog: ${var.catalog_use}
+      catalog: ${var.catalog}
       serverless: true
       data_sampling: false
       event_log:
