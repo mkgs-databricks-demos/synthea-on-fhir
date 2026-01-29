@@ -82,38 +82,38 @@ resources:
           notebook_task:
             notebook_path: ../src/1.0-synthea-data-generator.py
         
-        - task_key: inject_bad_date
-          depends_on:
-            - task_key: generate_bundles
-          condition_task:
-            op: EQUAL_TO
-            left: "{{job.parameters.inject_bad_data}}"
-            right: "true"
+        # - task_key: inject_bad_date
+        #   depends_on:
+        #     - task_key: generate_bundles
+        #   condition_task:
+        #     op: EQUAL_TO
+        #     left: "{{job.parameters.inject_bad_data}}"
+        #     right: "true"
 
-        - task_key: bad_data_injector
-          depends_on:
-            - task_key: inject_bad_date
-              outcome: "true"
-          notebook_task:
-            notebook_path: ../src/2.0-inject-bad-data.py
+        # - task_key: bad_data_injector
+        #   depends_on:
+        #     - task_key: inject_bad_date
+        #       outcome: "true"
+        #   notebook_task:
+        #     notebook_path: ../src/2.0-inject-bad-data.py
 
-        - task_key: move_csv_to_landing
-          depends_on:
-            - task_key: bad_data_injector
-            - task_key: inject_bad_date
-              outcome: "false"
-          run_if: AT_LEAST_ONE_SUCCESS
-          condition_task:
-            op: EQUAL_TO
-            left: "{{job.parameters.move_csv_to_landing}}"
-            right: "true"
+        # - task_key: move_csv_to_landing
+        #   depends_on:
+        #     - task_key: bad_data_injector
+        #     - task_key: inject_bad_date
+        #       outcome: "false"
+        #   run_if: AT_LEAST_ONE_SUCCESS
+        #   condition_task:
+        #     op: EQUAL_TO
+        #     left: "{{job.parameters.move_csv_to_landing}}"
+        #     right: "true"
 
-        - task_key: csv_file_mover
-          depends_on:
-            - task_key: move_csv_to_landing
-              outcome: "true"
-          notebook_task:
-            notebook_path: ../src/3.0-move-synthea-files-to-landing.py
+        # - task_key: csv_file_mover
+        #   depends_on:
+        #     - task_key: move_csv_to_landing
+        #       outcome: "true"
+        #   notebook_task:
+        #     notebook_path: ../src/3.0-move-synthea-files-to-landing.py
 
 
 
