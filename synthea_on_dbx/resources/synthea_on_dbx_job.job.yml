@@ -57,6 +57,13 @@ resources:
           environment_key: primary
           depends_on:
             - task_key: uc_setup
+              
+        - task_key: set_configuration
+          notebook_task: 
+            notebook_path: ../src/0.3-synthea-configuration.py
+          environment_key: primary
+          depends_on:
+            - task_key: install_synthea
 
 
 
