@@ -113,6 +113,9 @@ targets:
     default: false
     workspace:
       host: https://fe-vm-mkgs-databricks-demos.cloud.databricks.com/
+    git:
+      origin_url: https://github.com/mkgs-databricks-demos/synthea-on-fhir.git
+      branch: main
     permissions:
       - user_name: matthew.giglia@databricks.com
         level: CAN_MANAGE
