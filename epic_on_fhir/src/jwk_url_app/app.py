@@ -21,7 +21,7 @@ except Exception as e:
 	print(f"ERROR retrieving secret: {type(e).__name__}: {e}", file=sys.stderr)
 	raise
 
-KID = os.getenv("EPIC_KID", "fy27fde")
+KID = w.dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="kid")
 ALG = os.getenv("ALGO", "RS384")
 
 def load_jwks():

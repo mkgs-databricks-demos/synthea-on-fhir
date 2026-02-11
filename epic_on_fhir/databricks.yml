@@ -22,8 +22,6 @@ variables:
   client_id_dbs_key:
     description: The secret key name in the scope to return the correct client id for the EPIC on FHIR application.  Use "client_id" for non-production workflows, and "client_id_prod" for production workflows. 
     default: client_id
-  epic_kid: 
-    description: The EPIC kid Used to Connect with JWT OAuth2
   algo:
     description: Encryption algorithm used. 
     default: RS384
@@ -52,7 +50,6 @@ targets:
     variables:
       catalog: mkgs_dev
       schema: epic_on_fhir
-      epic_kid: fy27fde
       run_as_user: matthew.giglia@databricks.com
 
 
@@ -64,7 +61,6 @@ targets:
     variables:
       catalog: main
       schema: epic_on_fhir
-      epic_kid: fy27fde
       run_as_user: matthew.giglia@databricks.com
     permissions:
       - user_name: matthewgiglia@mac.com

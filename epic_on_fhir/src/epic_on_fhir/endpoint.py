@@ -9,6 +9,7 @@
     For example, a GET request to the "Patient" resource with the "12345" action would be defined as:
         scope = "Patient/12345
 """
+import requests
 
 class EpicApiRequest:
     def __init__(self, auth, base_url):
