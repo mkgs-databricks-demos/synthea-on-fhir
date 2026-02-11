@@ -2,17 +2,20 @@ from shiny import App, ui, render, Inputs, Outputs, Session
 from shiny import reactive
 from jwcrypto import jwk
 import json
+import os
+from databricks.sdk import WorkspaceClient
 
-# Path to your PEM public key (matching your private key)
-PUBLIC_KEY_PATH = "public_key.pem"
-KID = "epic-key-1"   # must match JWT header "kid"
-ALG = "RS384"        # or RS256 if that’s what you registered
+w = WorkspaceClient()
+
+SECRET_SCOPE_NAME = os.getenv("BUNDLE_VAR_SECRET_SCOPE_NAME", "epic_on_fhir_oauth_keys")
+PUBLIC_KEY = w.dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="public_key")
+KID = os.getenv("EPIC_KID", "fy27fde")
+ALG = os.getenv("ALGO", "RS384")
 
 def load_jwks():
-    with open(PUBLIC_KEY_PATH, "rb") as f:
-        pub_pem = f.read()
-
-    key = jwk.JWK.from_pem(pub_pem)
+    # with open(PUBLIC_KEY_PATH, "rb") as f:
+    #     pub_pem = f.read()
+    key = jwk.JWK.from_pem(PUBLIC_KEY)
     key.use = "sig"
     key.alg = ALG
     key.kid = KID

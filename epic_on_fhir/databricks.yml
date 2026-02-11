@@ -25,6 +25,9 @@ variables:
   pipeline_run_as_user:
     description: The user or principal that the Spark Declarative Pipelines should run as.  
     default: ${var.run_as_user}
+  algo:
+    description: Encryption algorithm used. 
+    default: RS384
 
   
 
