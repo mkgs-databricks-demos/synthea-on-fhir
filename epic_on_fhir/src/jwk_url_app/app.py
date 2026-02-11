@@ -7,7 +7,7 @@ from databricks.sdk import WorkspaceClient
 
 w = WorkspaceClient()
 
-SECRET_SCOPE_NAME = os.getenv("BUNDLE_VAR_SECRET_SCOPE_NAME", "epic_on_fhir_oauth_keys")
+SECRET_SCOPE_NAME = os.getenv("SECRET_SCOPE_NAME", "epic_on_fhir_oauth_keys")
 PUBLIC_KEY = w.dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="public_key")
 KID = os.getenv("EPIC_KID", "fy27fde")
 ALG = os.getenv("ALGO", "RS384")
