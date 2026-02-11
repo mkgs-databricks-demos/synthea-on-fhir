@@ -15,7 +15,7 @@ ALG = os.getenv("ALGO", "RS384")
 def load_jwks():
     # with open(PUBLIC_KEY_PATH, "rb") as f:
     #     pub_pem = f.read()
-    key = jwk.JWK.from_pem(PUBLIC_KEY)
+    key = jwk.JWK.from_pem(PUBLIC_KEY.encode('utf-8'))
     key.use = "sig"
     key.alg = ALG
     key.kid = KID
