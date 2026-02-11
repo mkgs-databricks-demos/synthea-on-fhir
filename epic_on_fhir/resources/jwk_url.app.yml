@@ -14,14 +14,9 @@ resources:
           - name: SECRET_SCOPE_NAME
             value: ${var.secret_scope_name}
       resources:
-        - name: "sql-warehouse"
-          description: "A SQL warehouse for app to be able to work with"
-          sql_warehouse:
-            id: "{{.sql_warehouse_id}}"
-            permission: "CAN_USE"
         - name: "epic-on-fhir-public-key"
           description: "The Databricks Secret Scope that contains information about the EPIC on FHIR Authentication"
           secret: 
-            scope: ${var.sercet_scope_name}
+            scope: ${var.secret_scope_name}
             key: public_key
             permission: "READ"
