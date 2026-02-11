@@ -1,7 +1,7 @@
 resources:
   apps:
     jwk_url_app:
-      name: "epic_jwk_oauth2_url"
+      name: epic_jwk_oauth_url
       source_code_path: ../src/jwk_url_app
       description: "A Shiny App Used to Authenticate with OAuth2 for Epic on FHIR"
       config:
