@@ -57,10 +57,10 @@ def server(input: Inputs, output: Outputs, session: Session):
 	# 	from starlette.responses import JSONResponse
 	# 	return JSONResponse(JWKS)
 
-app = App(app_ui, server)
+# app = App(app_ui, server)
 
-# Register route after app creation
-@app.app.router.get("/.well-known/jwks.json")
-async def jwks_route(request):
-    from starlette.responses import JSONResponse
-    return JSONResponse(JWKS)
+# # Register route after app creation
+# @app.app.router.get("/.well-known/jwks.json")
+# async def jwks_route(request):
+#     from starlette.responses import JSONResponse
+#     return JSONResponse(JWKS)
