@@ -1,5 +1,5 @@
 # Model serving endpoint for epic_on_fhir_auth.
-# Serves the Champion (best) version of the epic_on_fhir_auth registered model.
+# Serves version 1 initially. After promoting best run, set Champion alias and switch to entity_version: Champion.
 # AI Gateway best practices: inference tables, usage tracking, rate limiting.
 # Note: Guardrails and fallbacks are not supported for custom model endpoints.
 
@@ -10,13 +10,13 @@ resources:
       config:
         served_entities:
           - entity_name: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.epic_on_fhir_auth
-            entity_version: Champion
-            name: epic_on_fhir_auth-champion
+            entity_version: "1"
+            name: epic_on_fhir_auth-v1
             workload_size: Small
             scale_to_zero_enabled: true
         traffic_config:
           routes:
-            - served_model_name: epic_on_fhir_auth-champion
+            - served_model_name: epic_on_fhir_auth-v1
               traffic_percentage: 100
       ai_gateway:
         inference_table_config:
