@@ -4,7 +4,7 @@
 resources:
   experiments:
     epic_on_fhir_auth_experiment:
-      name: /Workspace/experiments/${var.run_as_user}/${bundle.name}/${bundle.target}/epic_on_fhir_auth
+      name: /Workspace/experiments/epic_on_fhir_auth
       tags:
         - key: description
           value: MLflow experiment for Epic on FHIR Authentication workflows and model runs
