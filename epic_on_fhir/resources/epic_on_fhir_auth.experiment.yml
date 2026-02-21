@@ -5,6 +5,7 @@ resources:
   experiments:
     epic_on_fhir_auth_experiment:
       name: /Workspace/experiments/epic_on_fhir_auth
+      artifact_location: ${resources.volumes.mlflow_artifacts.path}
       tags:
         - key: description
           value: MLflow experiment for Epic on FHIR Authentication workflows and model runs
