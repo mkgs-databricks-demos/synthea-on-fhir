@@ -36,6 +36,7 @@ class EpicApiAuth(requests.auth.AuthBase):
   def __call__(self, r):
     r.headers['Authorization'] = 'Bearer %s' % self.get_token()['access_token']
     r.headers['Accept'] = 'application/json'
+    r.headers['Content-Type'] = 'application/json'
     return r
 
   """
