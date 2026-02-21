@@ -20,3 +20,4 @@ resources:
             scope: ${var.secret_scope_name}
             key: public_key
             permission: "READ"
+      
