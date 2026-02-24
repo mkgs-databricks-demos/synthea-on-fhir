@@ -3,12 +3,12 @@
 
 resources:
   experiments:
-    epic_on_fhir_auth_experiment:
-      name: /Workspace/experiments/epic_on_fhir_auth
+    epic_on_fhir_requests_experiment:
+      name: /Workspace/experiments/epic_on_fhir_requests
       artifact_location: "dbfs:/Volumes/${resources.volumes.mlflow_artifacts.catalog_name}/${resources.volumes.mlflow_artifacts.schema_name}/${resources.volumes.mlflow_artifacts.name}"
       tags:
         - key: description
-          value: MLflow experiment for Epic on FHIR Authentication workflows and model runs
+          value: MLflow experiment for Epic on FHIR Requests workflows and model runs
       permissions:
         - level: CAN_READ
           group_name: users
