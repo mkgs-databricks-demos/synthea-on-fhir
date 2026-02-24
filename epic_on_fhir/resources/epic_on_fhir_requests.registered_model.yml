@@ -4,11 +4,11 @@
 
 resources:
   registered_models:
-    epic_on_fhir_auth_model:
-      name: epic_on_fhir_auth
+    epic_on_fhir_requests_model:
+      name: epic_on_fhir_requests
       catalog_name: ${resources.schemas.epic_on_fhir_schema.catalog_name}
       schema_name: ${resources.schemas.epic_on_fhir_schema.name}
-      comment: Epic on FHIR auth model - versions from epic_on_fhir_auth experiment
+      comment: Epic on FHIR auth model - versions from epic_on_fhir_requests experiment
       grants:
         - principal: ${var.run_as_user}
           privileges:
