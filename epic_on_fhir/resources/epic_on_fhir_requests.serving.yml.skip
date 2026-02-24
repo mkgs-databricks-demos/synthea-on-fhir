@@ -1,29 +1,29 @@
-# Model serving endpoint for epic_on_fhir_auth.
+# Model serving endpoint for epic_on_fhir_requests.
 # Serves version 1 initially. After promoting best run, set Champion alias and switch to entity_version: Champion.
 # AI Gateway best practices: inference tables, usage tracking, rate limiting.
 # Note: Guardrails and fallbacks are not supported for custom model endpoints.
 
 resources:
   model_serving_endpoints:
-    epic_on_fhir_auth_endpoint:
-      name: epic_on_fhir_auth-${bundle.target}
+    epic_on_fhir_requests_endpoint:
+      name: epic_on_fhir_requests-${bundle.target}
       config:
         served_entities:
-          - entity_name: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.epic_on_fhir_auth
+          - entity_name: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.epic_on_fhir_requests
             entity_version: "1"
-            name: epic_on_fhir_auth-v1
+            name: epic_on_fhir_requests-v1
             workload_size: Small
             scale_to_zero_enabled: true
         traffic_config:
           routes:
-            - served_model_name: epic_on_fhir_auth-v1
+            - served_model_name: epic_on_fhir_requests-v1
               traffic_percentage: 100
       ai_gateway:
         inference_table_config:
           enabled: true
           catalog_name: ${resources.schemas.epic_on_fhir_schema.catalog_name}
           schema_name: ${resources.schemas.epic_on_fhir_schema.name}
-          table_name_prefix: epic_on_fhir_auth_inference
+          table_name_prefix: epic_on_fhir_requests_inference
         usage_tracking_config:
           enabled: true
         rate_limits:

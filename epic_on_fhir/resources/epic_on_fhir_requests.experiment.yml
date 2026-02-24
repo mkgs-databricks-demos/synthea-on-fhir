@@ -1,4 +1,4 @@
-# MLflow experiment for epic_on_fhir_auth.
+# MLflow experiment for epic_on_fhir_requests.
 # Used for tracking model training runs and GenAI evaluations.
 
 resources:
