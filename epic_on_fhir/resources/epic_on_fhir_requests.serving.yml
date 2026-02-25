@@ -10,7 +10,7 @@ resources:
       config:
         served_entities:
           - entity_name: ${resources.registered_models.epic_on_fhir_requests_model.id}
-            entity_version: "champion"
+            entity_version: "1"
             name: epic_on_fhir_requests_endpoint
             workload_size: Small
             scale_to_zero_enabled: true
@@ -21,7 +21,7 @@ resources:
               EPIC_PRIVATE_KEY: "{{secrets/epic_on_fhir_oauth_keys/private_key}}}"
         traffic_config:
           routes:
-            - served_model_name: epic_on_fhir_requests-champion
+            - served_model_name: epic_on_fhir_requests_endpoint
               traffic_percentage: 100
       ai_gateway:
         inference_table_config:
