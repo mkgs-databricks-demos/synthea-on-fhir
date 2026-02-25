@@ -7,6 +7,7 @@ resources:
   model_serving_endpoints:
     epic_on_fhir_requests_endpoint:
       name: epic_on_fhir_requests
+      description: Endpoint for handling requests to Open Epic's Smart-On-FHIR APIs
       config:
         served_entities:
           - entity_name: ${resources.registered_models.epic_on_fhir_requests_model.id}
