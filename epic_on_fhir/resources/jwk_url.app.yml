@@ -2,13 +2,11 @@ resources:
   apps:
     jwk_url_app:
       name: "epic-jwk-oauth2-url"
-      source_code_path: ../src/jwk_url_app
+      source_code_path: ./src/jwk_url_app
       description: "A FastAPI App Used to Serve JWKS for OAuth2 Authentication with Epic on FHIR"
       config:
         command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
         env: 
-          # - name: EPIC_KID
-          #   value: ${var.kid}
           - name: ALGO
             value: ${var.algo}
           - name: SECRET_SCOPE_NAME
