@@ -15,9 +15,15 @@ resources:
             value: ${var.secret_scope_name}
       resources:
         - name: "epic-on-fhir-public-key"
-          description: "The Databricks Secret Scope that contains information about the EPIC on FHIR Authentication"
+          description: "EPIC on FHIR Authentication Public Key"
           secret: 
             scope: ${var.secret_scope_name}
             key: public_key
+            permission: "READ"
+        - name: "epic-on-fhir-kid"
+          description: "EPIC on FHIR Authentication KID"
+          secret: 
+            scope: ${var.secret_scope_name}
+            key: kid
             permission: "READ"
       
