@@ -9,8 +9,8 @@ resources:
       name: epic_on_fhir_requests-${bundle.target}
       config:
         served_entities:
-          - entity_name: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.epic_on_fhir_requests
-            entity_version: "Champion"
+          - entity_name: ${resources.registered_models.epic_on_fhir_requests.catalog_name}.${resources.registered_models.epic_on_fhir_requests.schmea_name}.${resources.registered_models.epic_on_fhir_requests.name}
+            entity_version: "champion"
             name: epic_on_fhir_requests-champion
             workload_size: Small
             scale_to_zero_enabled: true

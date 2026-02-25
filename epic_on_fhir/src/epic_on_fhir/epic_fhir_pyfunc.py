@@ -83,7 +83,7 @@ class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
         self.api = self._make_api()
 
     @pyfunc 
-    def predict(self, model_input: pd.DataFrame, params=None) -> pd.DataFrame:
+    def predict(self, context, model_input: pd.DataFrame, params=None) -> list[str]:
         """Make Epic FHIR request(s). Input columns: resource, action, http_method, data (optional)."""
         if model_input is None or len(model_input) == 0:
             return pd.DataFrame()
@@ -97,8 +97,8 @@ class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
             http_method = str(row.get("http_method", "get")).lower()
             data = row.get("data") if pd.notna(row.get("data")) else None
 
-            if not resource or not action:
-                results.append({"error": "resource and action are required"})
+            if not resource:
+                results.append({"response": "error: resource required"})
                 continue
 
             try:
@@ -108,8 +108,9 @@ class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
                     action=action,
                     data=data,
                 )
-                results.append(out)
+                response = out['response']
+                results.append(response)
             except Exception as e:
-                results.append({"error": str(e), "resource": resource, "action": action})
+                results.append({"response": str(e)})
 
-        return pd.DataFrame(results)
+        return results
