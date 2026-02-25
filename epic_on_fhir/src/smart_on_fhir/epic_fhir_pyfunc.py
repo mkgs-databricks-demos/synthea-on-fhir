@@ -11,8 +11,8 @@ import mlflow
 from mlflow.pyfunc.utils import pyfunc
 import pandas as pd
 
-from epic_on_fhir.auth import EpicApiAuth
-from epic_on_fhir.endpoint import EpicApiRequest
+from smart_on_fhir.auth import EpicApiAuth
+from smart_on_fhir.endpoint import EpicApiRequest
 
 
 class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
@@ -78,8 +78,8 @@ class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
         """Load context."""
         import os
         import pandas as pd
-        from epic_on_fhir.auth import EpicApiAuth
-        from epic_on_fhir.endpoint import EpicApiRequest
+        from smart_on_fhir.auth import EpicApiAuth
+        from smart_on_fhir.endpoint import EpicApiRequest
         self.api = self._make_api()
 
     @pyfunc 
