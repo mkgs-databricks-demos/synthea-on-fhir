@@ -14,6 +14,11 @@ import pandas as pd
 from smart_on_fhir.auth import EpicApiAuth
 from smart_on_fhir.endpoint import EpicApiRequest
 
+from pyspark.dbutils import DBUtils  # available in Databricks Runtime
+
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
 
 class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
     """
@@ -30,12 +35,14 @@ class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
         token_url: str,
         algo: str,
         base_url: str = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/",
+        dbutils=dbutils
     ):
         self.secret_scope_name = secret_scope_name
         self.client_id_dbs_key = client_id_dbs_key
         self.token_url = token_url
         self.algo = algo
         self.base_url = base_url.rstrip("/") + "/"
+        self._dbutils = dbutils
 
     def _get_secrets(self):
         """Fetch secrets. Tries env vars (for model serving) then dbutils (for notebooks/jobs)."""
@@ -46,21 +53,22 @@ class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
         if client_id and private_key and kid:
             return client_id, private_key, kid
         # Notebook/job: use dbutils
-        try:
-            from pyspark.dbutils import DBUtils
-            from pyspark.sql import SparkSession
-            dbutils = DBUtils(SparkSession.builder.getOrCreate())
-        except Exception:
-            try:
-                import dbutils
-            except ImportError:
-                raise RuntimeError(
-                    "Secrets not in env (EPIC_CLIENT_ID, EPIC_PRIVATE_KEY, EPIC_KID) and dbutils unavailable."
-                )
-        client_id = dbutils.secrets.get(scope=self.secret_scope_name, key=self.client_id_dbs_key)
-        private_key = dbutils.secrets.get(scope=self.secret_scope_name, key="private_key")
-        kid = dbutils.secrets.get(scope=self.secret_scope_name, key="kid")
-        return client_id, private_key, kid
+        # try:
+        #     from pyspark.dbutils import DBUtils
+        #     from pyspark.sql import SparkSession
+        #     dbutils = DBUtils(SparkSession.builder.getOrCreate())
+        # except Exception:
+        #     try:
+        #         import dbutils
+        #     except ImportError:
+        #         raise RuntimeError(
+        #             "Secrets not in env (EPIC_CLIENT_ID, EPIC_PRIVATE_KEY, EPIC_KID) and dbutils unavailable."
+        #         )
+        else:
+            client_id = self._dbutils.secrets.get(scope=self.secret_scope_name, key=self.client_id_dbs_key)
+            private_key = self._dbutils.secrets.get(scope=self.secret_scope_name, key="private_key")
+            kid = self._dbutils.secrets.get(scope=self.secret_scope_name, key="kid")
+            return client_id, private_key, kid
 
     def _make_api(self):
         """Build EpicApiAuth and EpicApiRequest from secrets."""
