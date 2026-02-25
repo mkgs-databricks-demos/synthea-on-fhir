@@ -6,7 +6,7 @@
 resources:
   model_serving_endpoints:
     epic_on_fhir_requests_endpoint:
-      name: epic_on_fhir_requests-${bundle.target}
+      name: epic_on_fhir_requests
       config:
         served_entities:
           - entity_name: ${resources.registered_models.epic_on_fhir_requests.catalog_name}.${resources.registered_models.epic_on_fhir_requests.schmea_name}.${resources.registered_models.epic_on_fhir_requests.name}
