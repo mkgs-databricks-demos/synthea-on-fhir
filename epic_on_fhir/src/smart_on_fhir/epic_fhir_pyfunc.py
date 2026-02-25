@@ -13,6 +13,7 @@ import pandas as pd
 
 from smart_on_fhir.auth import EpicApiAuth
 from smart_on_fhir.endpoint import EpicApiRequest
+from pyspark.sql import SparkSession
 
 from pyspark.dbutils import DBUtils  # available in Databricks Runtime
 
