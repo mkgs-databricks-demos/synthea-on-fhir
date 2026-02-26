@@ -5,7 +5,7 @@ bundle:
   uuid: 6fff4968-d24d-4d81-9a83-d4d2e5a38493
 
 include:
-  # - resources/*app.yml
+  - resources/*app.yml
   - resources/*serving.yml
   - resources/*schema.yml
   - resources/*experiment.yml
