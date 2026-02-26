@@ -87,6 +87,8 @@ targets:
           permissions:
           - user_name: ${var.run_as_user}
             level: MANAGE
+          lifecycle:
+            prevent_destroy: true
       experiments:
         epic_on_fhir_requests_experiment:
           permissions:
@@ -135,6 +137,8 @@ targets:
           permissions:
           - service_principal_name: ${var.run_as_user}
             level: MANAGE
+          lifecycle:
+            prevent_destroy: true
       experiments:
         epic_on_fhir_requests_experiment:
           permissions:
