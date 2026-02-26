@@ -47,8 +47,8 @@ class EpicFhirPyfuncModel(mlflow.pyfunc.PythonModel):
         client_id = os.environ.get("EPIC_CLIENT_ID")
         private_key = os.environ.get("EPIC_PRIVATE_KEY")
         kid = os.environ.get("EPIC_KID")
-        if client_id and private_key and kid:
-            return client_id, private_key, kid
+        # if client_id and private_key and kid:
+        return client_id, private_key, kid
         # Notebook/job: use dbutils
         # try:
         #     from pyspark.dbutils import DBUtils
