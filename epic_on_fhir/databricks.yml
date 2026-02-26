@@ -129,7 +129,7 @@ targets:
         RemoveAfter: ${var.tags_RemoveAfter}
         env: ${bundle.target}
     workspace:
-      host: https://dbc-de8ffabd-1dae.cloud.databricks.com/
+      host: https://fe-vm-mkgs-databricks-demos.cloud.databricks.com/
       root_path: /Workspace/epic-on-fhir/.bundle/${bundle.name}/${bundle.target}
     resources:
       secret_scopes:
