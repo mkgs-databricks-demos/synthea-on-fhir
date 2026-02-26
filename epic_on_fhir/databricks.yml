@@ -5,8 +5,8 @@ bundle:
   uuid: 6fff4968-d24d-4d81-9a83-d4d2e5a38493
 
 include:
-  - resources/*app.yml
-  - resources/*serving.yml
+  # - resources/*app.yml
+  # - resources/*serving.yml
   - resources/*schema.yml
   - resources/*experiment.yml
   - resources/*model.yml
@@ -151,14 +151,14 @@ targets:
             group_name: users
           - level: CAN_MANAGE
             service_principal_name: ${var.run_as_user}
-      model_serving_endpoints:
-        epic_on_fhir_requests_endpoint:
-          name: epic_on_fhir_requests
-          permissions:
-          - level: CAN_QUERY
-            group_name: users
-          - level: CAN_MANAGE
-            service_principal_name: ${var.run_as_user}
+      # model_serving_endpoints:
+      #   epic_on_fhir_requests_endpoint:
+      #     name: epic_on_fhir_requests
+      #     permissions:
+      #     - level: CAN_QUERY
+      #       group_name: users
+      #     - level: CAN_MANAGE
+      #       service_principal_name: ${var.run_as_user}
     variables:
       catalog: mkgs
       schema: open_epic_smart_on_fhir
