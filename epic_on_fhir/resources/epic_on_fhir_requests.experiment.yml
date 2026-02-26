@@ -9,8 +9,8 @@ resources:
       tags:
         - key: description
           value: MLflow experiment for Epic on FHIR Requests workflows and model runs
-      permissions:
-        - level: CAN_READ
-          group_name: users
-        - level: CAN_EDIT
-          user_name: ${var.run_as_user}
+      # permissions:
+      #   - level: CAN_READ
+      #     group_name: users
+      #   - level: CAN_EDIT
+      #     user_name: ${var.run_as_user}

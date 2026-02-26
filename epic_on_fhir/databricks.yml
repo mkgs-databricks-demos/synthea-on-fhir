@@ -30,9 +30,15 @@ variables:
     default: https://fhir.epic.com/interconnect-fhir-oauth/oauth2/token
   run_as_user:
     description: The User that the workflows should run as.
-  pipeline_run_as_user:
-    description: The user or principal that the Spark Declarative Pipelines should run as.  
-    default: ${var.run_as_user}
+  higher_level_service_principal:
+    description: The service principal name (application ID) for higher level deployments.  Comment this out if you are not using a service_principal for deployments above the dev target.
+    default: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
+  serverless_environment_version:
+    description: The serverless environment for which to run the workflows, notebook tasks, etc. 
+    default: 4
+  dashboard_embed_credentials:
+    description: Set to true if the dashboard should use the owner's credentials, or false if the user's credentials should be used to run the dashboard and access Unity Catalog assets.  
+    default: false
   model_deployment_version:
     description: The version of the model to deploy with the bundle
     default: "1"
@@ -52,6 +58,27 @@ targets:
     default: true
     workspace:
       host: https://fe-vm-mkgs-databricks-demos.cloud.databricks.com
+      root_path: /Workspace/Users/${var.run_as_user}/.bundle/${bundle.name}/${bundle.target}
+    resources:
+      secret_scopes:
+        epic_on_fhir_secret_scope:
+          permissions:
+          - user_name: ${var.run_as_user}
+            level: MANAGE
+      experiments:
+        epic_on_fhir_requests_experiment:
+          permissions:
+          - level: CAN_READ
+            group_name: users
+          - level: CAN_EDIT
+            user_name: ${var.run_as_user}
+      model_serving_endpoints:
+        epic_on_fhir_requests_endpoint:
+          permissions:
+          - level: CAN_QUERY
+            group_name: users
+          - level: CAN_MANAGE
+            user_name: ${var.run_as_user}
     variables:
       catalog: mkgs_dev
       schema: epic_on_fhir
@@ -59,15 +86,45 @@ targets:
       client_id_dbs_key: client_id
       model_deployment_version: "18"
 
+# assumes that a folder path of /Workspace/epic-on-fhir/ has been set up previously on the host workspace and that a service principal with appropriate permissions in Unity Catalog has been created and added below for the higher_level_service_principal variable.  
   sandbox_prod:
     mode: production
+    default: false
+    # comment out sync after first deployment
+    sync:
+      exclude:
+        - resources/*serving.yml
+    presets:
+      name_prefix: "[sandbox] "
+      source_linked_deployment: false
     workspace:
       host: https://dbc-de8ffabd-1dae.cloud.databricks.com/
       root_path: /Workspace/epic-on-fhir/.bundle/${bundle.name}/${bundle.target}
+    resources:
+      secret_scopes:
+        epic_on_fhir_secret_scope:
+          permissions:
+          - service_principal_name: ${var.run_as_user}
+            level: MANAGE
+      experiments:
+        epic_on_fhir_requests_experiment:
+          permissions:
+          - level: CAN_READ
+            group_name: users
+          - level: CAN_MANAGE
+            service_principal_name: ${var.run_as_user}
+      model_serving_endpoints:
+        epic_on_fhir_requests_endpoint:
+          permissions:
+          - level: CAN_QUERY
+            group_name: users
+          - level: CAN_MANAGE
+            service_principal_name: ${var.run_as_user}
     variables:
       catalog: mkgs
-      schema: epic_on_fhir
-      run_as_user: matthew.giglia@databricks.com
+      schema: open_epic_smart_on_fhir
+      higher_level_service_principal: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
+      run_as_user: ${var.higher_level_service_principal}
       client_id_dbs_key: client_id
       model_deployment_version: "1"
     permissions:

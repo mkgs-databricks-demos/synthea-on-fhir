@@ -36,8 +36,8 @@ resources:
           - key: user
             renewal_period: minute
             calls: 60
-      permissions:
-        - level: CAN_QUERY
-          group_name: users
-        - level: CAN_MANAGE
-          user_name: ${var.run_as_user}
+      # permissions:
+      #   - level: CAN_QUERY
+      #     group_name: users
+      #   - level: CAN_MANAGE
+      #     user_name: ${var.run_as_user}
