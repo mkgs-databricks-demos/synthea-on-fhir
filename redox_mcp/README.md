@@ -1,5 +1,7 @@
 # redox_mcp
 
+Databricks Application to Host the Redox MCP Closed Beta for use in Agent Frameworks.  User must be part of the closed beta and have the ability to access https://data-models.prod.redoxengine.com/downloads/redox-mcp/linux-x64/redox-mcp.bin for downloads.  
+
 ## Getting Started
 
 To deploy and manage this asset bundle, follow these steps:
