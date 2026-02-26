@@ -13,6 +13,8 @@ resources:
             value: ${var.algo}
           - name: SECRET_SCOPE_NAME
             value: ${var.secret_scope_name}
+          - name: BIN_SOURCE_PATH
+            value: ${resources.volumes.source_bin.volume_path}
       resources:
         - name: "redox-public-key"
           description: "Redox Authentication Public Key"
@@ -38,4 +40,8 @@ resources:
             scope: ${var.secret_scope_name}
             key: ${var.client_id_dbs_key}
             permission: "READ"
-      
+        - name: "bin-volume"
+          description: "Volume containing the Redox MCP Linux x86-64 binary"
+          volume: 
+            path: ${resources.volumes.source_bin.volume_path}
+            permission: "READ"

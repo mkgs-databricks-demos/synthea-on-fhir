@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-REHOX_BINARY_PATH = os.path.join(os.path.dirname(__file__), "bin", "redox-mcp")
+REHOX_BINARY_PATH = os.environ.get("REHOX_BINARY_PATH")
 
 class JsonRpcRequest(BaseModel):
     jsonrpc: str
