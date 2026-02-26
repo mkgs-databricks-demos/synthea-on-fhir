@@ -167,7 +167,7 @@ targets:
       client_id_dbs_key: client_id
       model_deployment_version: "1"
     permissions:
-      - user_name: matthewgiglia@mac.com
+      - user_name: matthew.giglia@databricks.com
         level: CAN_MANAGE
 
 # use only with real production Epic On FHIR Endpoints, Otherwise Use sandbox_prod target
@@ -183,5 +183,5 @@ targets:
       client_id_dbs_key: client_id_prod
       model_deployment_version: "1"
     permissions:
-      - user_name: matthewgiglia@mac.com
+      - user_name: matthew.giglia@databricks.com
         level: CAN_MANAGE
