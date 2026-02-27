@@ -13,7 +13,7 @@ from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-REDOX_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH")
+REDOX_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp")
 
 # Ensure binary is executable
 if REDOX_BINARY_PATH and not os.access(REDOX_BINARY_PATH, os.X_OK):
