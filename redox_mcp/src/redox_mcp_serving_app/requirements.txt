@@ -1,3 +1,4 @@
 fastapi
 uvicorn
 jwcrypto
+databricks-sdk

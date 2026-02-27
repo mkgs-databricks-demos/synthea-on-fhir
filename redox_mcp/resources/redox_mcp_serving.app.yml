@@ -8,7 +8,6 @@ resources:
         prevent_destroy: true
       config:
         command: ["uv","run","redox-http-proxy"]
-        port: 8000
         env: 
           - name: SECRET_SCOPE_NAME
             value: ${var.secret_scope_name}

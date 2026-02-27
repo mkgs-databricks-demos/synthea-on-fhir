@@ -8,6 +8,7 @@ import sys
 import tempfile
 from typing import Any, Dict, Optional
 
+from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -17,10 +18,12 @@ REDOX_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH")
 if REDOX_BINARY_PATH and not os.access(REDOX_BINARY_PATH, os.X_OK):
     os.chmod(REDOX_BINARY_PATH, 0o755)
 
+# Initialize Databricks client for accessing secrets
+w = WorkspaceClient()
 SECRET_SCOPE_NAME = os.environ.get("SECRET_SCOPE_NAME")
-PRIVATE_KEY = dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="private_key")
-KID = dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="kid")
-CLIENT_ID = dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="client_id")
+PRIVATE_KEY = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="private_key").value
+KID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="kid").value
+CLIENT_ID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="client_id").value
 os.environ["OAUTH_CLIENT_ID"] = CLIENT_ID
 os.environ["OAUTH_KEY_ID"] = KID
 
