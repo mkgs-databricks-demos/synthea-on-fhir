@@ -28,8 +28,8 @@ temp_binary = tempfile.NamedTemporaryFile(
 temp_binary_path = temp_binary.name
 
 # Download the binary from the volume
-with w.files.download(VOLUME_BINARY_PATH) as response:
-    temp_binary.write(response.contents.read())
+response = w.files.download(VOLUME_BINARY_PATH)
+temp_binary.write(response.contents.read())
 temp_binary.close()
 
 print(f"[redox-proxy] Binary downloaded to: {temp_binary_path}", file=sys.stderr)
