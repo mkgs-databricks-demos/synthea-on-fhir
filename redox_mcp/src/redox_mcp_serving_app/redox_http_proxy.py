@@ -13,24 +13,34 @@ from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-REDOX_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp.bin")
-
-# Validate binary exists and is accessible
-if not REDOX_BINARY_PATH:
-    raise ValueError("REDOX_BINARY_PATH is required but was not set")
-
-if not os.path.exists(REDOX_BINARY_PATH):
-    raise FileNotFoundError(f"Redox binary not found at: {REDOX_BINARY_PATH}")
-
-print(f"[redox-proxy] Found binary at: {REDOX_BINARY_PATH}", file=sys.stderr)
-
-# Ensure binary is executable
-if not os.access(REDOX_BINARY_PATH, os.X_OK):
-    os.chmod(REDOX_BINARY_PATH, 0o755)
-    print(f"[redox-proxy] Set executable permissions on binary", file=sys.stderr)
-
-# Initialize Databricks client for accessing secrets
+# Initialize Databricks client for accessing secrets and files
 w = WorkspaceClient()
+
+# Download binary from volume to local storage
+VOLUME_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp.bin")
+print(f"[redox-proxy] Downloading binary from volume: {VOLUME_BINARY_PATH}", file=sys.stderr)
+
+# Create a temporary file for the binary
+temp_binary = tempfile.NamedTemporaryFile(
+    delete=False
+    , suffix='-redox-mcp'
+)
+temp_binary_path = temp_binary.name
+
+# Download the binary from the volume
+with w.files.download(VOLUME_BINARY_PATH) as response:
+    temp_binary.write(response.contents.read())
+temp_binary.close()
+
+print(f"[redox-proxy] Binary downloaded to: {temp_binary_path}", file=sys.stderr)
+
+# Make the local binary executable
+os.chmod(temp_binary_path, 0o755)
+print(f"[redox-proxy] Set executable permissions on binary", file=sys.stderr)
+
+# Use the local path as the executable
+REDOX_BINARY_PATH = temp_binary_path
+
 SECRET_SCOPE_NAME = os.environ.get("SECRET_SCOPE_NAME", "redox_oauth_keys")
 
 # Validate that secret scope name is available
