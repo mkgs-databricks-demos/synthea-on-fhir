@@ -142,6 +142,13 @@ class RedoxMCPProcess:
             # Copy current environment and pass it to subprocess
             env = os.environ.copy()
             
+            # Debug: Verify critical env vars are present
+            print(f"[redox-proxy] Subprocess env has OAUTH_CLIENT_ID: {'OAUTH_CLIENT_ID' in env}", file=sys.stderr)
+            print(f"[redox-proxy] Subprocess env has OAUTH_KEY_ID: {'OAUTH_KEY_ID' in env}", file=sys.stderr)
+            print(f"[redox-proxy] Subprocess env has OAUTH_KEY_PATH: {'OAUTH_KEY_PATH' in env}", file=sys.stderr)
+            if 'OAUTH_KEY_PATH' in env:
+                print(f"[redox-proxy] Key file exists: {os.path.exists(env['OAUTH_KEY_PATH'])}", file=sys.stderr)
+            
             self._proc = subprocess.Popen(
                 self._cmd,
                 stdin=subprocess.PIPE,
@@ -242,12 +249,16 @@ class RedoxMCPProcess:
         print(f"[redox-proxy] Sending request: {json.dumps(request)[:200]}...", file=sys.stderr)
         self._proc.stdin.write(data.encode("utf-8"))
         self._proc.stdin.flush()
+        
+        # Debug: Check if process is still alive after sending
+        print(f"[redox-proxy] Process status after send: {self._proc.poll()}", file=sys.stderr)
+        
         if rpc_id is None:
             return {}
         fut: asyncio.Future = self._loop.create_future()
         self._pending[rpc_id] = fut
         try:
-            resp = await asyncio.wait_for(fut, timeout=30.0)
+            resp = await asyncio.wait_for(fut, timeout=120.0)
             print(f"[redox-proxy] Received response: {json.dumps(resp)[:200]}...", file=sys.stderr)
             return resp
         except asyncio.TimeoutError:
