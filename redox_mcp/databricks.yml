@@ -6,7 +6,7 @@ include:
   - resources/*.volume.yml
   - resources/*.schema.yml
   - resources/*.secret_scope.yml
-  # - resources/*.app.yml
+  - resources/*.app.yml
   - resources/*/*.yml
 
 # Variable declarations. These variables are assigned in the dev/prod targets below.
