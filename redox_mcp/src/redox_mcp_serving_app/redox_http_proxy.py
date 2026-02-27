@@ -116,6 +116,8 @@ class JsonRpcRequest(BaseModel):
     id: Optional[int | str] = None
     params: Optional[Dict[str, Any]] = None
 
+print(f"[redox-proxy] Defining RedoxMCPProcess class...", file=sys.stderr)
+
 class RedoxMCPProcess:
     """
     Minimal JSON-RPC 2.0 bridge to a stdio MCP server (redox-mcp).
@@ -123,16 +125,22 @@ class RedoxMCPProcess:
     """
 
     def __init__(self, cmd: Optional[list[str]] = None):
+        print(f"[redox-proxy] Initializing RedoxMCPProcess...", file=sys.stderr)
         if cmd is None:
             cmd = [REDOX_BINARY_PATH]
         self._cmd = cmd
         self._proc: Optional[subprocess.Popen[bytes]] = None
         self._pending: dict[Any, asyncio.Future] = {}
-        self._loop = asyncio.get_event_loop()
+        self._loop = None  # Will be set when start() is called
+        print(f"[redox-proxy] RedoxMCPProcess initialized with command: {cmd}", file=sys.stderr)
 
     async def start(self) -> None:
         if self._proc is not None:
             return
+
+        # Get event loop when we actually need it (inside async context)
+        if self._loop is None:
+            self._loop = asyncio.get_event_loop()
 
         print(f"[redox-proxy] Starting MCP process with command: {self._cmd}", file=sys.stderr)
         
@@ -214,24 +222,46 @@ class RedoxMCPProcess:
         try:
             print(f"[redox-proxy] Stopping MCP process...", file=sys.stderr)
             self._proc.send_signal(signal.SIGTERM)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[redox-proxy] Error stopping process: {e}", file=sys.stderr)
         self._proc = None
 
 # Global instance reused across HTTP requests
-redox_proc = RedoxMCPProcess()
+print(f"[redox-proxy] Creating RedoxMCPProcess instance...", file=sys.stderr)
+try:
+    redox_proc = RedoxMCPProcess()
+    print(f"[redox-proxy] RedoxMCPProcess instance created successfully", file=sys.stderr)
+except Exception as e:
+    print(f"[redox-proxy] ERROR creating RedoxMCPProcess: {e}", file=sys.stderr)
+    print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
+    raise
+
+print(f"[redox-proxy] Defining lifespan context manager...", file=sys.stderr)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Start the Redox MCP process
     print(f"[redox-proxy] FastAPI lifespan startup", file=sys.stderr)
-    await redox_proc.start()
+    try:
+        await redox_proc.start()
+        print(f"[redox-proxy] Redox MCP process started successfully", file=sys.stderr)
+    except Exception as e:
+        print(f"[redox-proxy] ERROR starting redox process: {e}", file=sys.stderr)
+        print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
+        raise
     yield
     # Shutdown: Stop the Redox MCP process
     print(f"[redox-proxy] FastAPI lifespan shutdown", file=sys.stderr)
     await redox_proc.stop()
 
-app = FastAPI(lifespan=lifespan)
+print(f"[redox-proxy] Creating FastAPI app...", file=sys.stderr)
+try:
+    app = FastAPI(lifespan=lifespan)
+    print(f"[redox-proxy] FastAPI app created successfully", file=sys.stderr)
+except Exception as e:
+    print(f"[redox-proxy] ERROR creating FastAPI app: {e}", file=sys.stderr)
+    print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
+    raise
 
 @app.post("/mcp")
 async def mcp_endpoint(req: JsonRpcRequest) -> Dict[str, Any]:
@@ -252,6 +282,8 @@ async def mcp_endpoint(req: JsonRpcRequest) -> Dict[str, Any]:
 
     # For notifications, resp will be {}
     return resp
+
+print(f"[redox-proxy] Module initialization complete, ready to serve!", file=sys.stderr)
 
 def main() -> None:
     import uvicorn
