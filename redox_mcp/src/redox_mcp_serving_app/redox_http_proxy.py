@@ -13,11 +13,21 @@ from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-REDOX_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp")
+REDOX_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp.bin")
+
+# Validate binary exists and is accessible
+if not REDOX_BINARY_PATH:
+    raise ValueError("REDOX_BINARY_PATH is required but was not set")
+
+if not os.path.exists(REDOX_BINARY_PATH):
+    raise FileNotFoundError(f"Redox binary not found at: {REDOX_BINARY_PATH}")
+
+print(f"[redox-proxy] Found binary at: {REDOX_BINARY_PATH}", file=sys.stderr)
 
 # Ensure binary is executable
-if REDOX_BINARY_PATH and not os.access(REDOX_BINARY_PATH, os.X_OK):
+if not os.access(REDOX_BINARY_PATH, os.X_OK):
     os.chmod(REDOX_BINARY_PATH, 0o755)
+    print(f"[redox-proxy] Set executable permissions on binary", file=sys.stderr)
 
 # Initialize Databricks client for accessing secrets
 w = WorkspaceClient()
