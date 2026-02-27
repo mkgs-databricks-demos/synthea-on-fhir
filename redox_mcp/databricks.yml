@@ -100,7 +100,7 @@ targets:
         env: ${bundle.target}
     workspace:
       host: https://fe-vm-mkgs-databricks-demos.cloud.databricks.com
-      root_path: /Users/.bundle/${bundle.name}/${bundle.target}
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
     # run_as:
     #   user_name: ${var.run_as_user}
     variables:
