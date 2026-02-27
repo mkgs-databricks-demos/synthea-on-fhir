@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import traceback
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
@@ -16,56 +17,97 @@ from pydantic import BaseModel
 # Initialize Databricks client for accessing secrets and files
 w = WorkspaceClient()
 
-# Download binary from volume to local storage
-VOLUME_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp")
-print(f"[redox-proxy] Downloading binary from volume: {VOLUME_BINARY_PATH}", file=sys.stderr)
+# Global variables to be set during initialization
+REDOX_BINARY_PATH = None
 
-# Create a temporary file for the binary
-temp_binary = tempfile.NamedTemporaryFile(
-    delete=False
-    , suffix='-redox-mcp'
-)
-temp_binary_path = temp_binary.name
+def initialize_binary():
+    """Download and setup the Redox MCP binary from Unity Catalog volume"""
+    global REDOX_BINARY_PATH
+    
+    try:
+        # Download binary from volume to local storage
+        VOLUME_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp")
+        print(f"[redox-proxy] Downloading binary from volume: {VOLUME_BINARY_PATH}", file=sys.stderr)
+        
+        # Create a temporary file for the binary
+        temp_binary = tempfile.NamedTemporaryFile(
+            mode='wb'
+            , delete=False
+            , suffix='-redox-mcp'
+        )
+        temp_binary_path = temp_binary.name
+        
+        # Download the binary from the volume
+        print(f"[redox-proxy] Initiating download...", file=sys.stderr)
+        response = w.files.download(VOLUME_BINARY_PATH)
+        print(f"[redox-proxy] Download complete, writing to temp file...", file=sys.stderr)
+        temp_binary.write(response.contents.read())
+        temp_binary.close()
+        
+        print(f"[redox-proxy] Binary downloaded to: {temp_binary_path}", file=sys.stderr)
+        
+        # Make the local binary executable
+        os.chmod(temp_binary_path, 0o755)
+        print(f"[redox-proxy] Set executable permissions on binary", file=sys.stderr)
+        
+        # Use the local path as the executable
+        REDOX_BINARY_PATH = temp_binary_path
+        print(f"[redox-proxy] Binary ready at: {REDOX_BINARY_PATH}", file=sys.stderr)
+        
+    except Exception as e:
+        print(f"[redox-proxy] ERROR initializing binary: {e}", file=sys.stderr)
+        print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
+        raise
 
-# Download the binary from the volume
-response = w.files.download(VOLUME_BINARY_PATH)
-temp_binary.write(response.contents.read())
-temp_binary.close()
+def initialize_secrets():
+    """Retrieve secrets and configure environment variables"""
+    try:
+        SECRET_SCOPE_NAME = os.environ.get("SECRET_SCOPE_NAME", "redox_oauth_keys")
+        
+        # Validate that secret scope name is available
+        if not SECRET_SCOPE_NAME:
+            raise ValueError("SECRET_SCOPE_NAME environment variable is required but was not set")
+        
+        print(f"[redox-proxy] Using secret scope: {SECRET_SCOPE_NAME}", file=sys.stderr)
+        
+        print(f"[redox-proxy] Retrieving private key...", file=sys.stderr)
+        PRIVATE_KEY = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="private_key").value
+        print(f"[redox-proxy] Retrieving KID...", file=sys.stderr)
+        KID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="kid").value
+        print(f"[redox-proxy] Retrieving client ID...", file=sys.stderr)
+        CLIENT_ID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="client_id").value
+        
+        os.environ["OAUTH_CLIENT_ID"] = CLIENT_ID
+        os.environ["OAUTH_KEY_ID"] = KID
+        print(f"[redox-proxy] Secrets retrieved and environment variables set", file=sys.stderr)
+        
+        # Write private key to temporary file for MCP server
+        print(f"[redox-proxy] Writing private key to temp file...", file=sys.stderr)
+        temp_key_file = tempfile.NamedTemporaryFile(
+            mode='w'
+            , delete=False
+            , suffix='.pem'
+        )
+        temp_key_file.write(PRIVATE_KEY)
+        temp_key_file.close()
+        os.chmod(temp_key_file.name, 0o600)  # Set restrictive permissions
+        os.environ["OAUTH_KEY_PATH"] = temp_key_file.name
+        print(f"[redox-proxy] Private key written to: {temp_key_file.name}", file=sys.stderr)
+        
+    except Exception as e:
+        print(f"[redox-proxy] ERROR initializing secrets: {e}", file=sys.stderr)
+        print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
+        raise
 
-print(f"[redox-proxy] Binary downloaded to: {temp_binary_path}", file=sys.stderr)
-
-# Make the local binary executable
-os.chmod(temp_binary_path, 0o755)
-print(f"[redox-proxy] Set executable permissions on binary", file=sys.stderr)
-
-# Use the local path as the executable
-REDOX_BINARY_PATH = temp_binary_path
-
-SECRET_SCOPE_NAME = os.environ.get("SECRET_SCOPE_NAME", "redox_oauth_keys")
-
-# Validate that secret scope name is available
-if not SECRET_SCOPE_NAME:
-    raise ValueError("SECRET_SCOPE_NAME environment variable is required but was not set")
-
-print(f"[redox-proxy] Using secret scope: {SECRET_SCOPE_NAME}", file=sys.stderr)
-
-PRIVATE_KEY = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="private_key").value
-KID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="kid").value
-CLIENT_ID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="client_id").value
-os.environ["OAUTH_CLIENT_ID"] = CLIENT_ID
-os.environ["OAUTH_KEY_ID"] = KID
-
-# Write private key to temporary file for MCP server
-temp_key_file = tempfile.NamedTemporaryFile(
-    mode='w'
-    , delete=False
-    , suffix='.pem'
-)
-temp_key_file.write(PRIVATE_KEY)
-temp_key_file.close()
-os.chmod(temp_key_file.name, 0o600)  # Set restrictive permissions
-os.environ["OAUTH_KEY_PATH"] = temp_key_file.name
-
+# Initialize on module load
+print(f"[redox-proxy] Starting initialization...", file=sys.stderr)
+try:
+    initialize_binary()
+    initialize_secrets()
+    print(f"[redox-proxy] Initialization complete!", file=sys.stderr)
+except Exception as e:
+    print(f"[redox-proxy] FATAL: Initialization failed: {e}", file=sys.stderr)
+    raise
 
 
 class JsonRpcRequest(BaseModel):
@@ -92,6 +134,8 @@ class RedoxMCPProcess:
         if self._proc is not None:
             return
 
+        print(f"[redox-proxy] Starting MCP process with command: {self._cmd}", file=sys.stderr)
+        
         self._proc = subprocess.Popen(
             self._cmd,
             stdin=subprocess.PIPE,
@@ -103,6 +147,8 @@ class RedoxMCPProcess:
         if self._proc.stdin is None or self._proc.stdout is None:
             raise RuntimeError("Failed to open pipes to redox-mcp")
 
+        print(f"[redox-proxy] MCP process started with PID: {self._proc.pid}", file=sys.stderr)
+        
         # Start background reader
         self._loop.create_task(self._read_loop())
 
@@ -166,6 +212,7 @@ class RedoxMCPProcess:
         if self._proc is None:
             return
         try:
+            print(f"[redox-proxy] Stopping MCP process...", file=sys.stderr)
             self._proc.send_signal(signal.SIGTERM)
         except Exception:
             pass
@@ -177,9 +224,11 @@ redox_proc = RedoxMCPProcess()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Start the Redox MCP process
+    print(f"[redox-proxy] FastAPI lifespan startup", file=sys.stderr)
     await redox_proc.start()
     yield
     # Shutdown: Stop the Redox MCP process
+    print(f"[redox-proxy] FastAPI lifespan shutdown", file=sys.stderr)
     await redox_proc.stop()
 
 app = FastAPI(lifespan=lifespan)
