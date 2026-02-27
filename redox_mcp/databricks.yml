@@ -104,7 +104,7 @@ targets:
     variables:
       catalog: 
       schema: redox
-      higher_level_service_princiapl: 0ab13318-f064-41b4-a49a-0fd18ceb2d0f
+      higher_level_service_principal: 0ab13318-f064-41b4-a49a-0fd18ceb2d0f
       run_as_user: ${var.higher_level_service_principal}
       client_id_dbs_key: client_id
       token_url: 'https://api.redoxengine.com/fhir/R4/redox-fhir-sandbox/Staging/'
