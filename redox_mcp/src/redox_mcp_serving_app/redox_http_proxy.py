@@ -119,7 +119,7 @@ class RedoxMCPProcess:
     def __init__(self, cmd: Optional[List[str]] = None):
         print(f"[redox-proxy] Initializing RedoxMCPProcess...", file=sys.stderr)
         if cmd is None:
-            cmd = [REDOX_BINARY_PATH, "--stdio"]
+            cmd = [REDOX_BINARY_PATH, "--json-rpc"]
         self._cmd: List[str] = [str(c) for c in cmd if c is not None]
         self._proc: Optional[subprocess.Popen] = None
         self._pending: dict[Any, asyncio.Future] = {}
