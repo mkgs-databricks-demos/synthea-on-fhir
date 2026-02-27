@@ -17,7 +17,7 @@ from pydantic import BaseModel
 w = WorkspaceClient()
 
 # Download binary from volume to local storage
-VOLUME_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp.bin")
+VOLUME_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp")
 print(f"[redox-proxy] Downloading binary from volume: {VOLUME_BINARY_PATH}", file=sys.stderr)
 
 # Create a temporary file for the binary
