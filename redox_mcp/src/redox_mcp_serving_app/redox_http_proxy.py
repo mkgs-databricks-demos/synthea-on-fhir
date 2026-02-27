@@ -5,12 +5,37 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-REHOX_BINARY_PATH = os.environ.get("REHOX_BINARY_PATH")
+REDOX_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH")
+
+# Ensure binary is executable
+if REDOX_BINARY_PATH and not os.access(REDOX_BINARY_PATH, os.X_OK):
+    os.chmod(REDOX_BINARY_PATH, 0o755)
+
+SECRET_SCOPE_NAME = os.environ.get("SECRET_SCOPE_NAME")
+PRIVATE_KEY = dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="private_key")
+KID = dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="kid")
+CLIENT_ID = dbutils.secrets.get(scope=SECRET_SCOPE_NAME, key="client_id")
+os.environ["OAUTH_CLIENT_ID"] = CLIENT_ID
+os.environ["OAUTH_KEY_ID"] = KID
+
+# Write private key to temporary file for MCP server
+temp_key_file = tempfile.NamedTemporaryFile(
+    mode='w'
+    , delete=False
+    , suffix='.pem'
+)
+temp_key_file.write(PRIVATE_KEY)
+temp_key_file.close()
+os.chmod(temp_key_file.name, 0o600)  # Set restrictive permissions
+os.environ["OAUTH_KEY_PATH"] = temp_key_file.name
+
+
 
 class JsonRpcRequest(BaseModel):
     jsonrpc: str
@@ -26,7 +51,7 @@ class RedoxMCPProcess:
 
     def __init__(self, cmd: Optional[list[str]] = None):
         if cmd is None:
-            cmd = [REHOX_BINARY_PATH]
+            cmd = [REDOX_BINARY_PATH]
         self._cmd = cmd
         self._proc: Optional[subprocess.Popen[bytes]] = None
         self._pending: dict[Any, asyncio.Future] = {}

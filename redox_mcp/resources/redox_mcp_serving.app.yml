@@ -13,7 +13,7 @@ resources:
             value: ${var.algo}
           - name: SECRET_SCOPE_NAME
             value: ${var.secret_scope_name}
-          - name: BIN_SOURCE_PATH
+          - name: REDOX_BINARY_PATH
             value: ${resources.volumes.source_bin.volume_path}
       resources:
         - name: "redox-public-key"
