@@ -1,7 +1,7 @@
 resources:
   apps:
     redox_mcp_serving_app:
-      name: "redox-mcp"
+      name: "mcp-redox"
       source_code_path: ../src/redox_mcp_serving_app/
       description: "An application to serve the Redox MCP Server on Databricks"
       lifecycle:
