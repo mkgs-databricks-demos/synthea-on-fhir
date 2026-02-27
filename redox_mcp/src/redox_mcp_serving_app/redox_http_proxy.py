@@ -8,15 +8,13 @@ import sys
 import tempfile
 import traceback
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# Set up global exception handler
 def handle_exception(exc_type, exc_value, exc_traceback):
-    """Global exception handler to catch any unhandled exceptions"""
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
@@ -26,47 +24,31 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = handle_exception
 
-# Initialize Databricks client for accessing secrets and files
 w = WorkspaceClient()
 
-# Global variables to be set during initialization
 REDOX_BINARY_PATH = None
 
 def initialize_binary():
-    """Download and setup the Redox MCP binary from Unity Catalog volume"""
     global REDOX_BINARY_PATH
-    
     try:
-        # Download binary from volume to local storage
         VOLUME_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp")
         print(f"[redox-proxy] Downloading binary from volume: {VOLUME_BINARY_PATH}", file=sys.stderr)
-        
-        # Create a temporary file for the binary
         temp_binary = tempfile.NamedTemporaryFile(
             mode='wb'
             , delete=False
             , suffix='-redox-mcp'
         )
         temp_binary_path = temp_binary.name
-        
-        # Download the binary from the volume
         print(f"[redox-proxy] Initiating download...", file=sys.stderr)
         response = w.files.download(VOLUME_BINARY_PATH)
         print(f"[redox-proxy] Download complete, writing to temp file...", file=sys.stderr)
         temp_binary.write(response.contents.read())
         temp_binary.close()
-        
         print(f"[redox-proxy] Binary downloaded to: {temp_binary_path}", file=sys.stderr)
-        
-        # Make the local binary executable
         os.chmod(temp_binary_path, 0o755)
         print(f"[redox-proxy] Set executable permissions on binary", file=sys.stderr)
-        
-        # Use the local path as the executable
         REDOX_BINARY_PATH = temp_binary_path
         print(f"[redox-proxy] Binary ready at: {REDOX_BINARY_PATH}", file=sys.stderr)
-        
-        # Test if the binary can be executed
         print(f"[redox-proxy] Testing binary execution...", file=sys.stderr)
         try:
             test_result = subprocess.run(
@@ -80,35 +62,26 @@ def initialize_binary():
             print(f"[redox-proxy] Binary test - stderr: {test_result.stderr}", file=sys.stderr)
         except Exception as test_e:
             print(f"[redox-proxy] WARNING: Binary test failed: {test_e}", file=sys.stderr)
-        
     except Exception as e:
         print(f"[redox-proxy] ERROR initializing binary: {e}", file=sys.stderr)
         print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
         raise
 
 def initialize_secrets():
-    """Retrieve secrets and configure environment variables"""
     try:
         SECRET_SCOPE_NAME = os.environ.get("SECRET_SCOPE_NAME", "redox_oauth_keys")
-        
-        # Validate that secret scope name is available
         if not SECRET_SCOPE_NAME:
             raise ValueError("SECRET_SCOPE_NAME environment variable is required but was not set")
-        
         print(f"[redox-proxy] Using secret scope: {SECRET_SCOPE_NAME}", file=sys.stderr)
-        
         print(f"[redox-proxy] Retrieving private key...", file=sys.stderr)
         PRIVATE_KEY = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="private_key").value
         print(f"[redox-proxy] Retrieving KID...", file=sys.stderr)
         KID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="kid").value
         print(f"[redox-proxy] Retrieving client ID...", file=sys.stderr)
         CLIENT_ID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="client_id").value
-        
         os.environ["OAUTH_CLIENT_ID"] = CLIENT_ID
         os.environ["OAUTH_KEY_ID"] = KID
         print(f"[redox-proxy] Secrets retrieved and environment variables set", file=sys.stderr)
-        
-        # Write private key to temporary file for MCP server
         print(f"[redox-proxy] Writing private key to temp file...", file=sys.stderr)
         temp_key_file = tempfile.NamedTemporaryFile(
             mode='w'
@@ -117,16 +90,14 @@ def initialize_secrets():
         )
         temp_key_file.write(PRIVATE_KEY)
         temp_key_file.close()
-        os.chmod(temp_key_file.name, 0o600)  # Set restrictive permissions
+        os.chmod(temp_key_file.name, 0o600)
         os.environ["OAUTH_KEY_PATH"] = temp_key_file.name
         print(f"[redox-proxy] Private key written to: {temp_key_file.name}", file=sys.stderr)
-        
     except Exception as e:
         print(f"[redox-proxy] ERROR initializing secrets: {e}", file=sys.stderr)
         print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
         raise
 
-# Initialize on module load
 print(f"[redox-proxy] Starting initialization...", file=sys.stderr)
 try:
     initialize_binary()
@@ -135,7 +106,6 @@ try:
 except Exception as e:
     print(f"[redox-proxy] FATAL: Initialization failed: {e}", file=sys.stderr)
     raise
-
 
 class JsonRpcRequest(BaseModel):
     jsonrpc: str
@@ -146,51 +116,39 @@ class JsonRpcRequest(BaseModel):
 print(f"[redox-proxy] Defining RedoxMCPProcess class...", file=sys.stderr)
 
 class RedoxMCPProcess:
-    """
-    Minimal JSON-RPC 2.0 bridge to a stdio MCP server (redox-mcp).
-    Assumes one JSON object per line on stdout.
-    """
-
-    def __init__(self, cmd: Optional[list[str]] = None):
+    def __init__(self, cmd: Optional[List[str]] = None):
         print(f"[redox-proxy] Initializing RedoxMCPProcess...", file=sys.stderr)
         if cmd is None:
             cmd = [REDOX_BINARY_PATH]
-        self._cmd = cmd
-        self._proc: Optional[subprocess.Popen[bytes]] = None
+        self._cmd: List[str] = [str(c) for c in cmd if c is not None]
+        self._proc: Optional[subprocess.Popen] = None
         self._pending: dict[Any, asyncio.Future] = {}
-        self._loop = None  # Will be set when start() is called
-        print(f"[redox-proxy] RedoxMCPProcess initialized with command: {cmd}", file=sys.stderr)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        print(f"[redox-proxy] RedoxMCPProcess initialized with command: {self._cmd}", file=sys.stderr)
 
     async def start(self) -> None:
         if self._proc is not None:
             print(f"[redox-proxy] MCP process already running, skipping start", file=sys.stderr)
             return
-
-        # Get event loop when we actually need it (inside async context)
         if self._loop is None:
-            self._loop = asyncio.get_event_loop()
+            self._loop = asyncio.get_running_loop()
             print(f"[redox-proxy] Event loop acquired", file=sys.stderr)
-
         print(f"[redox-proxy] Starting MCP process with command: {self._cmd}", file=sys.stderr)
         print(f"[redox-proxy] Environment variables:", file=sys.stderr)
         print(f"[redox-proxy]   OAUTH_CLIENT_ID: {os.environ.get('OAUTH_CLIENT_ID', 'NOT SET')[:20]}...", file=sys.stderr)
         print(f"[redox-proxy]   OAUTH_KEY_ID: {os.environ.get('OAUTH_KEY_ID', 'NOT SET')[:20]}...", file=sys.stderr)
         print(f"[redox-proxy]   OAUTH_KEY_PATH: {os.environ.get('OAUTH_KEY_PATH', 'NOT SET')}", file=sys.stderr)
-        
         try:
             self._proc = subprocess.Popen(
                 self._cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,  # Separate stderr to capture errors
+                stderr=subprocess.PIPE,
                 bufsize=0,
             )
             print(f"[redox-proxy] MCP process started with PID: {self._proc.pid}", file=sys.stderr)
-            
-            # Check if process is still alive after a brief moment
             await asyncio.sleep(0.5)
             if self._proc.poll() is not None:
-                # Process has already exited
                 exit_code = self._proc.returncode
                 stderr_output = self._proc.stderr.read().decode('utf-8') if self._proc.stderr else "No stderr"
                 stdout_output = self._proc.stdout.read().decode('utf-8') if self._proc.stdout else "No stdout"
@@ -198,31 +156,22 @@ class RedoxMCPProcess:
                 print(f"[redox-proxy] STDERR: {stderr_output}", file=sys.stderr)
                 print(f"[redox-proxy] STDOUT: {stdout_output}", file=sys.stderr)
                 raise RuntimeError(f"MCP process failed to start (exit code {exit_code}): {stderr_output}")
-                
         except Exception as e:
             print(f"[redox-proxy] ERROR starting subprocess: {e}", file=sys.stderr)
             print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
             raise
-
         if self._proc.stdin is None or self._proc.stdout is None:
             raise RuntimeError("Failed to open pipes to redox-mcp")
-
         print(f"[redox-proxy] MCP process running, starting read loop...", file=sys.stderr)
-        
-        # Start background reader for stdout
         self._loop.create_task(self._read_loop())
-        # Start background reader for stderr
         self._loop.create_task(self._stderr_loop())
 
     async def _stderr_loop(self) -> None:
-        """Read and log stderr from the MCP process"""
         if self._proc is None or self._proc.stderr is None:
             return
-            
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
         await self._loop.connect_read_pipe(lambda: protocol, self._proc.stderr)
-        
         try:
             while True:
                 line = await reader.readline()
@@ -234,13 +183,19 @@ class RedoxMCPProcess:
         except Exception as e:
             print(f"[redox-proxy] Error in stderr loop: {e}", file=sys.stderr)
 
+    def _sanitize_json_response(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            sanitized = json.loads(json.dumps(msg))
+            return sanitized
+        except Exception as e:
+            print(f"[redox-proxy] Warning: Failed to sanitize JSON: {e}", file=sys.stderr)
+            return msg
+
     async def _read_loop(self) -> None:
         assert self._proc is not None and self._proc.stdout is not None
-
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
         await self._loop.connect_read_pipe(lambda: protocol, self._proc.stdout)
-
         try:
             while True:
                 line = await reader.readline()
@@ -250,24 +205,22 @@ class RedoxMCPProcess:
                 line = line.decode("utf-8").strip()
                 if not line:
                     continue
-
-                print(f"[redox-proxy] Received from MCP: {line[:100]}...", file=sys.stderr)
-                
+                print(f"[redox-proxy] Raw line from MCP: {repr(line[:200])}", file=sys.stderr)
                 try:
                     msg = json.loads(line)
-                except json.JSONDecodeError:
-                    print(f"[redox-proxy] Non-JSON line from redox-mcp: {line}", file=sys.stderr)
+                    msg = self._sanitize_json_response(msg)
+                    print(f"[redox-proxy] Parsed JSON message: {json.dumps(msg)[:200]}...", file=sys.stderr)
+                except json.JSONDecodeError as je:
+                    print(f"[redox-proxy] JSON decode error: {je}", file=sys.stderr)
+                    print(f"[redox-proxy] Problematic line: {repr(line)}", file=sys.stderr)
                     continue
-
                 rpc_id = msg.get("id")
                 if rpc_id is not None and rpc_id in self._pending:
                     fut = self._pending.pop(rpc_id)
                     if not fut.done():
                         fut.set_result(msg)
                 else:
-                    # Notifications or unsolicited messages can be logged / ignored
-                    print(f"[redox-proxy] Unmatched/notification message: {msg}", file=sys.stderr)
-
+                    print(f"[redox-proxy] Unmatched/notification message ID: {rpc_id}", file=sys.stderr)
         except Exception as e:
             print(f"[redox-proxy] Error in read loop: {e}", file=sys.stderr)
             print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
@@ -280,20 +233,22 @@ class RedoxMCPProcess:
 
     async def send(self, request: Dict[str, Any]) -> Dict[str, Any]:
         assert self._proc is not None and self._proc.stdin is not None
-
         rpc_id = request.get("id")
         data = json.dumps(request) + "\n"
+        print(f"[redox-proxy] Sending request: {json.dumps(request)[:200]}...", file=sys.stderr)
         self._proc.stdin.write(data.encode("utf-8"))
         self._proc.stdin.flush()
-
-        # Notifications (no id) – no response expected
         if rpc_id is None:
             return {}
-
         fut: asyncio.Future = self._loop.create_future()
         self._pending[rpc_id] = fut
-        resp = await fut
-        return resp
+        try:
+            resp = await asyncio.wait_for(fut, timeout=30.0)
+            print(f"[redox-proxy] Received response: {json.dumps(resp)[:200]}...", file=sys.stderr)
+            return resp
+        except asyncio.TimeoutError:
+            print(f"[redox-proxy] Timeout waiting for response to request ID: {rpc_id}", file=sys.stderr)
+            raise HTTPException(status_code=504, detail=f"Timeout waiting for MCP response")
 
     async def stop(self) -> None:
         if self._proc is None:
@@ -305,7 +260,6 @@ class RedoxMCPProcess:
             print(f"[redox-proxy] Error stopping process: {e}", file=sys.stderr)
         self._proc = None
 
-# Global instance reused across HTTP requests
 print(f"[redox-proxy] Creating RedoxMCPProcess instance...", file=sys.stderr)
 try:
     redox_proc = RedoxMCPProcess()
@@ -319,9 +273,8 @@ print(f"[redox-proxy] Defining lifespan context manager...", file=sys.stderr)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start the Redox MCP process
     print(f"[redox-proxy] FastAPI lifespan startup BEGIN", file=sys.stderr)
-    sys.stderr.flush()  # Force flush to ensure log appears
+    sys.stderr.flush()
     try:
         print(f"[redox-proxy] About to call redox_proc.start()...", file=sys.stderr)
         sys.stderr.flush()
@@ -336,7 +289,6 @@ async def lifespan(app: FastAPI):
     print(f"[redox-proxy] Lifespan startup complete, yielding...", file=sys.stderr)
     sys.stderr.flush()
     yield
-    # Shutdown: Stop the Redox MCP process
     print(f"[redox-proxy] FastAPI lifespan shutdown BEGIN", file=sys.stderr)
     sys.stderr.flush()
     await redox_proc.stop()
@@ -354,23 +306,17 @@ except Exception as e:
 
 @app.post("/mcp")
 async def mcp_endpoint(req: JsonRpcRequest) -> Dict[str, Any]:
-    """
-    Transparent MCP JSON-RPC proxy:
-    - Accepts JSON-RPC 2.0 request from HTTP client
-    - Sends it to redox-mcp via stdio
-    - Returns redox-mcp's response unchanged
-    """
+    print(f"[redox-proxy] MCP endpoint called with method: {req.method}", file=sys.stderr)
     await redox_proc.start()
-
-    request_dict = req.dict(exclude_none=True)
-
+    request_dict = req.model_dump(exclude_none=True)
     try:
         resp = await redox_proc.send(request_dict)
+        print(f"[redox-proxy] Returning response: {json.dumps(resp)[:200]}...", file=sys.stderr)
+        return resp
     except Exception as e:
+        print(f"[redox-proxy] Error in mcp_endpoint: {e}", file=sys.stderr)
+        print(f"[redox-proxy] Traceback: {traceback.format_exc()}", file=sys.stderr)
         raise HTTPException(status_code=500, detail=str(e))
-
-    # For notifications, resp will be {}
-    return resp
 
 print(f"[redox-proxy] Module initialization complete, ready to serve!", file=sys.stderr)
 sys.stderr.flush()
