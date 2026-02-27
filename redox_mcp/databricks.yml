@@ -102,7 +102,7 @@ targets:
       host: https://dbc-e5684c0a-20fa.cloud.databricks.com/
       root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: 
+      catalog: mkgs
       schema: redox
       higher_level_service_principal: 0ab13318-f064-41b4-a49a-0fd18ceb2d0f
       run_as_user: ${var.higher_level_service_principal}
