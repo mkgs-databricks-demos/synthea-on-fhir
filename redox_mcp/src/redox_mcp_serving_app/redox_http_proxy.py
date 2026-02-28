@@ -71,65 +71,51 @@ def initialize_binary():
 
 def initialize_secrets():
     try:
-        print(f"[redox-proxy] Retrieving secrets from Databricks secret scope...", file=sys.stderr)
+        print(f"[redox-proxy] Validating required environment variables...", file=sys.stderr)
         
-        # Get secret scope name from environment or use default
-        SECRET_SCOPE_NAME = os.environ.get("SECRET_SCOPE_NAME", "redox")
-        print(f"[redox-proxy] Using secret scope: {SECRET_SCOPE_NAME}", file=sys.stderr)
+        # Define all required environment variables
+        required_vars = [
+            "REDOX_CLIENT_ID"
+            , "REDOX_PRIVATE_KEY"
+            , "REDOX_PUBLIC_KEY_ID"
+            , "OAUTH_PRIVATE_KEY"
+            , "OAUTH_CLIENT_ID"
+            , "OAUTH_KEY_ID"
+        ]
         
-        # Retrieve secrets from Databricks using WorkspaceClient
-        print(f"[redox-proxy] Fetching private_key...", file=sys.stderr)
-        PRIVATE_KEY = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="private_key").value
+        # Validate each required variable
+        missing_vars = []
+        empty_vars = []
         
-        print(f"[redox-proxy] Fetching kid...", file=sys.stderr)
-        KID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="kid").value
+        for var_name in required_vars:
+            value = os.environ.get(var_name)
+            if value is None:
+                missing_vars.append(var_name)
+                print(f"[redox-proxy] ERROR: {var_name} is not set", file=sys.stderr)
+            elif len(value) == 0:
+                empty_vars.append(var_name)
+                print(f"[redox-proxy] ERROR: {var_name} is empty", file=sys.stderr)
+            else:
+                print(f"[redox-proxy] ✓ {var_name} validated (length: {len(value)})", file=sys.stderr)
         
-        print(f"[redox-proxy] Fetching client_id...", file=sys.stderr)
-        CLIENT_ID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="client_id").value
+        # Report all validation errors at once
+        if missing_vars or empty_vars:
+            error_messages = []
+            if missing_vars:
+                error_messages.append(f"Missing environment variables: {', '.join(missing_vars)}")
+            if empty_vars:
+                error_messages.append(f"Empty environment variables: {', '.join(empty_vars)}")
+            raise ValueError(". ".join(error_messages))
         
-        print(f"[redox-proxy] All secrets retrieved successfully", file=sys.stderr)
-        print(f"[redox-proxy] Private key length: {len(PRIVATE_KEY)}", file=sys.stderr)
-        print(f"[redox-proxy] KID length: {len(KID)}", file=sys.stderr)
-        print(f"[redox-proxy] Client ID length: {len(CLIENT_ID)}", file=sys.stderr)
+        # Retrieve validated values
+        REDOX_CLIENT_ID = os.environ.get("REDOX_CLIENT_ID")
+        REDOX_PRIVATE_KEY = os.environ.get("REDOX_PRIVATE_KEY")
+        REDOX_PUBLIC_KEY_ID = os.environ.get("REDOX_PUBLIC_KEY_ID")
+        OAUTH_PRIVATE_KEY = os.environ.get("OAUTH_PRIVATE_KEY")
+        OAUTH_CLIENT_ID = os.environ.get("OAUTH_CLIENT_ID")
+        OAUTH_KEY_ID = os.environ.get("OAUTH_KEY_ID")
         
-        # Write private key to temp file
-        print(f"[redox-proxy] Writing private key to temp file...", file=sys.stderr)
-        temp_key_file = tempfile.NamedTemporaryFile(
-            mode='w'
-            , delete=False
-            , suffix='.pem'
-        )
-        temp_key_file.write(PRIVATE_KEY)
-        temp_key_file.close()
-        os.chmod(temp_key_file.name, 0o600)
-        
-        # Set ALL possible environment variable name variants that Redox MCP might expect
-        # Standard OAuth names (no prefix)
-        os.environ["CLIENT_ID"] = CLIENT_ID
-        os.environ["KEY_ID"] = KID
-        os.environ["PRIVATE_KEY_PATH"] = temp_key_file.name
-        os.environ["KEY_PATH"] = temp_key_file.name
-        
-        # OAUTH_ prefixed names
-        os.environ["OAUTH_CLIENT_ID"] = CLIENT_ID
-        os.environ["OAUTH_KEY_ID"] = KID
-        os.environ["OAUTH_KEY_PATH"] = temp_key_file.name
-        os.environ["OAUTH_PRIVATE_KEY"] = PRIVATE_KEY
-        
-        # REDOX_ prefixed names
-        os.environ["REDOX_CLIENT_ID"] = CLIENT_ID
-        os.environ["REDOX_KEY_ID"] = KID
-        os.environ["REDOX_PUBLIC_KEY_ID"] = KID
-        os.environ["REDOX_PRIVATE_KEY"] = PRIVATE_KEY
-        os.environ["REDOX_PRIVATE_KEY_PATH"] = temp_key_file.name
-        
-        # Also try uppercase variants
-        os.environ["CLIENTID"] = CLIENT_ID
-        os.environ["KEYID"] = KID
-        
-        print(f"[redox-proxy] Environment variables set successfully", file=sys.stderr)
-        print(f"[redox-proxy] Private key written to: {temp_key_file.name}", file=sys.stderr)
-        print(f"[redox-proxy] Key file exists: {os.path.exists(temp_key_file.name)}", file=sys.stderr)
+        print(f"[redox-proxy] All required environment variables validated successfully", file=sys.stderr)
         
     except Exception as e:
         print(f"[redox-proxy] ERROR initializing secrets: {e}", file=sys.stderr)
