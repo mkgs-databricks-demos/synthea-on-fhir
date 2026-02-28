@@ -202,6 +202,9 @@ class RedoxMCPProcess:
         self._restart_count: int = 0
         self._total_requests: int = 0
         self._total_errors: int = 0
+        self._read_task: Optional[asyncio.Task] = None
+        self._stderr_task: Optional[asyncio.Task] = None
+        self._shutdown_event = asyncio.Event()
         logger.info(f"RedoxMCPProcess initialized with command: {self._cmd}")
     
     async def start(self) -> None:
@@ -243,6 +246,7 @@ class RedoxMCPProcess:
             )
             logger.info(f"MCP process started with PID: {self._proc.pid}")
             self._start_time = time.time()
+            self._shutdown_event.clear()
             
             # Wait and check if process started successfully
             await asyncio.sleep(0.5)
@@ -263,8 +267,29 @@ class RedoxMCPProcess:
             raise RuntimeError("Failed to open pipes to redox-mcp")
         
         logger.info("MCP process running, starting read loops...")
-        self._loop.create_task(self._read_loop())
-        self._loop.create_task(self._stderr_loop())
+        # Store task references for proper cleanup
+        self._read_task = self._loop.create_task(self._read_loop())
+        self._stderr_task = self._loop.create_task(self._stderr_loop())
+        
+        # Monitor process health
+        self._loop.create_task(self._monitor_process())
+    
+    async def _monitor_process(self) -> None:
+        """Monitor process health and log if it dies unexpectedly"""
+        while not self._shutdown_event.is_set():
+            await asyncio.sleep(1.0)
+            if self._proc is not None and not self.is_alive():
+                exit_code = self._proc.returncode
+                logger.error(f"MCP process died unexpectedly with exit code: {exit_code}")
+                # Try to read any remaining stderr
+                try:
+                    if self._proc.stderr:
+                        remaining_stderr = self._proc.stderr.read().decode('utf-8')
+                        if remaining_stderr:
+                            logger.error(f"Remaining stderr: {remaining_stderr}")
+                except Exception:
+                    pass
+                break
     
     async def ensure_alive(self) -> None:
         """Ensure process is alive, restart if necessary"""
@@ -286,18 +311,30 @@ class RedoxMCPProcess:
         
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
-        await self._loop.connect_read_pipe(lambda: protocol, self._proc.stderr)
         
         try:
-            while True:
-                line = await reader.readline()
-                if not line:
+            await self._loop.connect_read_pipe(lambda: protocol, self._proc.stderr)
+            
+            while not self._shutdown_event.is_set():
+                try:
+                    line = await asyncio.wait_for(reader.readline(), timeout=1.0)
+                    if not line:
+                        logger.info("Stderr loop: EOF reached")
+                        break
+                    line = line.decode("utf-8").strip()
+                    if line:
+                        logger.info(f"[MCP STDERR] {line}")
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    if not self._shutdown_event.is_set():
+                        logger.error(f"Error reading stderr: {e}", exc_info=True)
                     break
-                line = line.decode("utf-8").strip()
-                if line:
-                    logger.info(f"[MCP STDERR] {line}")
+                    
         except Exception as e:
-            logger.error(f"Error in stderr loop: {e}", exc_info=True)
+            logger.error(f"Error in stderr loop setup: {e}", exc_info=True)
+        finally:
+            logger.info("Stderr loop terminated")
     
     def _sanitize_json_response(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitize JSON response to ensure it's serializable"""
@@ -309,49 +346,64 @@ class RedoxMCPProcess:
     
     async def _read_loop(self) -> None:
         """Read stdout from MCP process and route responses to pending futures"""
-        assert self._proc is not None and self._proc.stdout is not None
+        if self._proc is None or self._proc.stdout is None:
+            logger.error("Cannot start read loop: process or stdout is None")
+            return
         
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
-        await self._loop.connect_read_pipe(lambda: protocol, self._proc.stdout)
         
         try:
-            while True:
-                line = await reader.readline()
-                if not line:
-                    logger.info("Read loop: EOF reached")
-                    break
-                
-                line = line.decode("utf-8").strip()
-                if not line:
-                    continue
-                
-                logger.debug(f"Raw line from MCP: {repr(line[:200])}")
-                
+            await self._loop.connect_read_pipe(lambda: protocol, self._proc.stdout)
+            logger.info("Read loop connected to process stdout")
+            
+            while not self._shutdown_event.is_set():
                 try:
-                    msg = json.loads(line)
-                    msg = self._sanitize_json_response(msg)
-                    logger.debug(f"Parsed JSON message: {json.dumps(msg)[:200]}...")
-                except json.JSONDecodeError as je:
-                    logger.error(f"JSON decode error: {je}")
-                    logger.error(f"Problematic line: {repr(line)}")
+                    # Use timeout to allow checking shutdown event
+                    line = await asyncio.wait_for(reader.readline(), timeout=1.0)
+                    if not line:
+                        logger.info("Read loop: EOF reached (process stdout closed)")
+                        break
+                    
+                    line = line.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    
+                    logger.debug(f"Raw line from MCP: {repr(line[:200])}")
+                    
+                    try:
+                        msg = json.loads(line)
+                        msg = self._sanitize_json_response(msg)
+                        logger.debug(f"Parsed JSON message: {json.dumps(msg)[:200]}...")
+                    except json.JSONDecodeError as je:
+                        logger.error(f"JSON decode error: {je}")
+                        logger.error(f"Problematic line: {repr(line)}")
+                        continue
+                    
+                    rpc_id = msg.get("id")
+                    if rpc_id is not None and rpc_id in self._pending:
+                        fut = self._pending.pop(rpc_id)
+                        if not fut.done():
+                            fut.set_result(msg)
+                    else:
+                        logger.debug(f"Unmatched/notification message ID: {rpc_id}")
+                        
+                except asyncio.TimeoutError:
+                    # Timeout is expected, continue to check shutdown event
                     continue
-                
-                rpc_id = msg.get("id")
-                if rpc_id is not None and rpc_id in self._pending:
-                    fut = self._pending.pop(rpc_id)
-                    if not fut.done():
-                        fut.set_result(msg)
-                else:
-                    logger.debug(f"Unmatched/notification message ID: {rpc_id}")
+                except Exception as e:
+                    if not self._shutdown_event.is_set():
+                        logger.error(f"Error reading from stdout: {e}", exc_info=True)
+                    break
                     
         except Exception as e:
-            logger.error(f"Error in read loop: {e}", exc_info=True)
+            logger.error(f"Error in read loop setup: {e}", exc_info=True)
         finally:
-            logger.info("Read loop terminated")
-            for fut in self._pending.values():
+            logger.info("Read loop terminated, cleaning up pending futures")
+            # Clean up any pending futures
+            for rpc_id, fut in list(self._pending.items()):
                 if not fut.done():
-                    fut.set_exception(RuntimeError("redox-mcp process terminated"))
+                    fut.set_exception(RuntimeError("MCP process read loop terminated"))
             self._pending.clear()
     
     async def send(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -359,7 +411,8 @@ class RedoxMCPProcess:
         # Ensure process is alive before sending
         await self.ensure_alive()
         
-        assert self._proc is not None and self._proc.stdin is not None
+        if self._proc is None or self._proc.stdin is None:
+            raise HTTPException(status_code=500, detail="MCP process not running")
         
         # Use lock to serialize requests and prevent race conditions
         async with self._request_lock:
@@ -458,22 +511,44 @@ class RedoxMCPProcess:
     async def stop(self) -> None:
         """Stop the MCP process gracefully"""
         if self._proc is None:
+            logger.info("No process to stop")
             return
         
         try:
             logger.info("Stopping MCP process...")
+            self._shutdown_event.set()
+            
+            # Cancel tasks gracefully
+            if self._read_task and not self._read_task.done():
+                self._read_task.cancel()
+                try:
+                    await asyncio.wait_for(self._read_task, timeout=2.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            
+            if self._stderr_task and not self._stderr_task.done():
+                self._stderr_task.cancel()
+                try:
+                    await asyncio.wait_for(self._stderr_task, timeout=2.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            
+            # Stop the process
             if self.is_alive():
                 self._proc.send_signal(signal.SIGTERM)
-                # Wait for graceful shutdown
                 try:
                     self._proc.wait(timeout=5)
+                    logger.info(f"Process terminated gracefully with code: {self._proc.returncode}")
                 except subprocess.TimeoutExpired:
                     logger.warning("Process didn't stop gracefully, killing...")
                     self._proc.kill()
+                    self._proc.wait(timeout=2)
         except Exception as e:
             logger.error(f"Error stopping process: {e}", exc_info=True)
         finally:
             self._proc = None
+            self._read_task = None
+            self._stderr_task = None
             logger.info("MCP process stopped")
 
 # ============================================================================
