@@ -86,6 +86,7 @@ class MetricsResponse(BaseModel):
     total_errors: int
     uptime_seconds: float
     restart_count: int
+    initialized: bool
 
 # ============================================================================
 # Global Exception Handler
@@ -205,6 +206,8 @@ class RedoxMCPProcess:
         self._read_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
         self._shutdown_event = asyncio.Event()
+        self._initialized: bool = False
+        self._init_response: Optional[Dict[str, Any]] = None
         logger.info(f"RedoxMCPProcess initialized with command: {self._cmd}")
     
     async def start(self) -> None:
@@ -445,17 +448,28 @@ class RedoxMCPProcess:
             self._pending[rpc_id] = fut
             
             try:
-                resp = await asyncio.wait_for(fut, timeout=self.settings.request_timeout)
+                # Use longer timeout for initialize (may need to auth with Redox API)
+                method = request.get("method", "")
+                if method == "initialize":
+                    timeout = 90.0  # 90 seconds for initialize
+                    logger.info(f"Using extended timeout ({timeout}s) for initialize request")
+                else:
+                    timeout = self.settings.request_timeout
+                
+                resp = await asyncio.wait_for(fut, timeout=timeout)
                 logger.info(f"Received response for request ID: {rpc_id}")
                 logger.debug(f"Response: {json.dumps(resp)[:200]}...")
                 return resp
             except asyncio.TimeoutError:
                 self._total_errors += 1
                 self._pending.pop(rpc_id, None)
-                logger.error(f"Timeout waiting for response to request ID: {rpc_id}")
+                method = request.get("method", "")
+                logger.error(f"Timeout waiting for response to request ID: {rpc_id} (method={method})")
+                if method == "initialize":
+                    logger.error("Initialize timed out - MCP binary may be failing to authenticate with Redox API")
                 raise HTTPException(
                     status_code=504
-                    , detail=f"Timeout waiting for MCP response ({self.settings.request_timeout}s limit)"
+                    , detail=f"Timeout waiting for MCP response (method={method})"
                 )
             except Exception as e:
                 self._total_errors += 1
@@ -483,7 +497,48 @@ class RedoxMCPProcess:
             , total_errors=self._total_errors
             , uptime_seconds=self.get_uptime()
             , restart_count=self._restart_count
+            , initialized=self._initialized
         )
+    
+    async def initialize_server(self) -> Dict[str, Any]:
+        """Initialize the MCP server (called once during startup)"""
+        if self._initialized and self._init_response is not None:
+            logger.info("MCP server already initialized, returning cached response")
+            return self._init_response
+        
+        logger.info("Initializing MCP server...")
+        init_response = await self.send({
+            "jsonrpc": "2.0"
+            , "method": "initialize"
+            , "id": "startup_init"
+            , "params": {
+                "protocolVersion": "2024-11-05"
+                , "capabilities": {}
+                , "clientInfo": {
+                    "name": "redox-http-proxy"
+                    , "version": "1.0.0"
+                }
+            }
+        })
+        
+        if "error" in init_response:
+            logger.error(f"MCP initialization failed: {init_response['error']}")
+            raise RuntimeError(f"MCP initialization failed: {init_response['error']}")
+        
+        logger.info(f"MCP server initialized: {json.dumps(init_response)[:200]}")
+        
+        # Send initialized notification (required by MCP protocol)
+        logger.info("Sending initialized notification...")
+        await self.send({
+            "jsonrpc": "2.0"
+            , "method": "notifications/initialized"
+            , "params": {}
+        })
+        
+        self._initialized = True
+        self._init_response = init_response
+        logger.info("MCP server fully initialized and ready")
+        return init_response
     
     async def list_tools(self) -> List[Dict[str, Any]]:
         """Query the MCP server for available tools"""
@@ -596,11 +651,16 @@ async def lifespan(app: FastAPI):
     try:
         await redox_proc.start()
         logger.info("Redox MCP process started successfully")
+        
+        # Proactively initialize the MCP server during startup
+        await redox_proc.initialize_server()
+        logger.info("MCP server initialized and ready to handle requests")
+        
     except Exception as e:
-        logger.error(f"ERROR starting redox process: {e}", exc_info=True)
+        logger.error(f"ERROR during startup: {e}", exc_info=True)
         raise
     
-    logger.info("Lifespan startup complete, yielding...")
+    logger.info("Lifespan startup complete, app is ready")
     yield
     
     logger.info("FastAPI lifespan shutdown BEGIN")
@@ -661,12 +721,15 @@ async def root():
         "service": "Redox MCP HTTP Proxy"
         , "status": "running"
         , "mcp_process_alive": redox_proc.is_alive()
+        , "mcp_initialized": redox_proc._initialized
         , "uptime_seconds": redox_proc.get_uptime()
         , "endpoints": {
             "health": "/api/v1/health"
             , "metrics": "/api/v1/metrics"
             , "tools": "/api/v1/tools"
             , "debug_env": "/api/v1/debug/env"
+            , "debug_process": "/api/v1/debug/process"
+            , "debug_test_mcp": "/api/v1/debug/test-mcp"
             , "mcp": "/mcp"
         }
     }
@@ -675,6 +738,7 @@ async def root():
 async def health_check():
     """Health check endpoint for monitoring"""
     is_alive = redox_proc.is_alive()
+    is_initialized = redox_proc._initialized
     
     if not is_alive:
         return JSONResponse(
@@ -683,6 +747,16 @@ async def health_check():
                 status="unhealthy"
                 , mcp_process="stopped"
                 , message="MCP process is not running"
+            ).model_dump()
+        )
+    
+    if not is_initialized:
+        return JSONResponse(
+            status_code=503
+            , content=HealthResponse(
+                status="unhealthy"
+                , mcp_process="running"
+                , message="MCP server not yet initialized"
             ).model_dump()
         )
     
@@ -721,6 +795,46 @@ async def debug_env():
         , "note": "Sensitive values are partially masked"
     }
 
+@app.get("/api/v1/debug/process")
+async def debug_process():
+    """Debug endpoint to check MCP process status"""
+    return {
+        "process_alive": redox_proc.is_alive()
+        , "process_pid": redox_proc._proc.pid if redox_proc._proc else None
+        , "initialized": redox_proc._initialized
+        , "pending_requests": len(redox_proc._pending)
+        , "uptime_seconds": redox_proc.get_uptime()
+        , "restart_count": redox_proc._restart_count
+        , "binary_path": redox_proc.binary_path
+        , "total_requests": redox_proc._total_requests
+        , "total_errors": redox_proc._total_errors
+    }
+
+@app.post("/api/v1/debug/test-mcp")
+async def test_mcp():
+    """Debug endpoint to test basic MCP communication with a simple ping"""
+    logger.info("Testing MCP communication with ping request")
+    try:
+        # Try a simple request to see if we get any response
+        resp = await redox_proc.send({
+            "jsonrpc": "2.0"
+            , "method": "ping"
+            , "id": "test_ping"
+            , "params": {}
+        })
+        return {
+            "success": True
+            , "message": "MCP binary responded"
+            , "response": resp
+        }
+    except Exception as e:
+        logger.error(f"MCP test failed: {e}", exc_info=True)
+        return {
+            "success": False
+            , "error": str(e)
+            , "message": "MCP binary did not respond"
+        }
+
 @app.get("/api/v1/tools")
 async def list_tools():
     """List all available tools from the MCP server"""
@@ -750,6 +864,11 @@ async def mcp_endpoint(req: JsonRpcRequest, request: Request) -> Dict[str, Any]:
     if await request.is_disconnected():
         logger.warning("Client disconnected before processing request")
         raise HTTPException(status_code=499, detail="Client disconnected")
+    
+    # Handle initialize specially - return cached response if already initialized
+    if req.method == "initialize" and redox_proc._initialized and redox_proc._init_response:
+        logger.info("Returning cached initialize response (server already initialized)")
+        return redox_proc._init_response
     
     request_dict = req.model_dump(exclude_none=True)
     
