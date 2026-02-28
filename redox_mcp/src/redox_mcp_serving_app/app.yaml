@@ -11,17 +11,24 @@ command: [
 env: 
   - name: SECRET_SCOPE_NAME
     value: ${var.secret_scope_name}
+
   - name: REDOX_BINARY_PATH
     value: ${resources.volumes.source_bin.volume_path}/redox-mcp-linux-x64
+
   - name: OAUTH_PRIVATE_KEY
-    value_from: redox_private_key
+    valueFrom: redox_private_key
+
   - name: OAUTH_CLIENT_ID
-    value_from: redox_client_id
+    valueFrom: redox_client_id
+
   - name: OAUTH_KEY_ID
-    value_from: redox_kid
+    valueFrom: redox_kid
+
   - name: REDOX_PRIVATE_KEY
-    value_from: redox_private_key
+    valueFrom: redox_private_key
+
   - name: REDOX_CLIENT_ID
-    value_from: redox_client_id
+    valueFrom: redox_client_id
+    
   - name: REDOX_PUBLIC_KEY_ID
-    value_from: redox_kid
+    valueFrom: redox_kid
