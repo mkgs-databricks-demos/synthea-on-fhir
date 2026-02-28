@@ -69,16 +69,56 @@ def initialize_binary():
 
 def initialize_secrets():
     try:
-        SECRET_SCOPE_NAME = os.environ.get("SECRET_SCOPE_NAME", "redox_oauth_keys")
-        if not SECRET_SCOPE_NAME:
-            raise ValueError("SECRET_SCOPE_NAME environment variable is required but was not set")
-        print(f"[redox-proxy] Using secret scope: {SECRET_SCOPE_NAME}", file=sys.stderr)
-        print(f"[redox-proxy] Retrieving private key...", file=sys.stderr)
-        PRIVATE_KEY = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="private_key").value
-        print(f"[redox-proxy] Retrieving KID...", file=sys.stderr)
-        KID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="kid").value
-        print(f"[redox-proxy] Retrieving client ID...", file=sys.stderr)
-        CLIENT_ID = w.secrets.get_secret(scope=SECRET_SCOPE_NAME, key="client_id").value
+        print(f"[redox-proxy] Validating required environment variables...", file=sys.stderr)
+        
+        # Define all required environment variables
+        required_vars = [
+            "REDOX_CLIENT_ID"
+            , "REDOX_PRIVATE_KEY"
+            , "REDOX_PUBLIC_KEY_ID"
+            , "OAUTH_PRIVATE_KEY"
+            , "OAUTH_CLIENT_ID"
+            , "OAUTH_KEY_ID"
+        ]
+        
+        # Validate each required variable
+        missing_vars = []
+        empty_vars = []
+        
+        for var_name in required_vars:
+            value = os.environ.get(var_name)
+            if value is None:
+                missing_vars.append(var_name)
+                print(f"[redox-proxy] ERROR: {var_name} is not set", file=sys.stderr)
+            elif len(value) == 0:
+                empty_vars.append(var_name)
+                print(f"[redox-proxy] ERROR: {var_name} is empty", file=sys.stderr)
+            else:
+                print(f"[redox-proxy] ✓ {var_name} validated (length: {len(value)})", file=sys.stderr)
+        
+        # Report all validation errors at once
+        if missing_vars or empty_vars:
+            error_messages = []
+            if missing_vars:
+                error_messages.append(f"Missing environment variables: {', '.join(missing_vars)}")
+            if empty_vars:
+                error_messages.append(f"Empty environment variables: {', '.join(empty_vars)}")
+            raise ValueError(". ".join(error_messages))
+        
+        # Retrieve validated values
+        REDOX_CLIENT_ID = os.environ.get("REDOX_CLIENT_ID")
+        REDOX_PRIVATE_KEY = os.environ.get("REDOX_PRIVATE_KEY")
+        REDOX_PUBLIC_KEY_ID = os.environ.get("REDOX_PUBLIC_KEY_ID")
+        OAUTH_PRIVATE_KEY = os.environ.get("OAUTH_PRIVATE_KEY")
+        OAUTH_CLIENT_ID = os.environ.get("OAUTH_CLIENT_ID")
+        OAUTH_KEY_ID = os.environ.get("OAUTH_KEY_ID")
+        
+        print(f"[redox-proxy] All required environment variables validated successfully", file=sys.stderr)
+        
+        # Use REDOX_ prefixed values as primary
+        CLIENT_ID = REDOX_CLIENT_ID
+        PRIVATE_KEY = REDOX_PRIVATE_KEY
+        KID = REDOX_PUBLIC_KEY_ID
         
         # Write private key to temp file first
         print(f"[redox-proxy] Writing private key to temp file...", file=sys.stderr)
@@ -98,25 +138,32 @@ def initialize_secrets():
         os.environ["PRIVATE_KEY_PATH"] = temp_key_file.name
         os.environ["KEY_PATH"] = temp_key_file.name
         
-        # OAUTH_ prefixed names (original)
-        os.environ["OAUTH_CLIENT_ID"] = CLIENT_ID
-        os.environ["OAUTH_KEY_ID"] = KID
+        # OAUTH_ prefixed names (ensure they are set even if already present)
+        os.environ["OAUTH_CLIENT_ID"] = OAUTH_CLIENT_ID
+        os.environ["OAUTH_KEY_ID"] = OAUTH_KEY_ID
         os.environ["OAUTH_KEY_PATH"] = temp_key_file.name
+        os.environ["OAUTH_PRIVATE_KEY"] = OAUTH_PRIVATE_KEY
         
-        # REDOX_ prefixed names
-        os.environ["REDOX_CLIENT_ID"] = CLIENT_ID
-        os.environ["REDOX_KEY_ID"] = KID
+        # REDOX_ prefixed names (ensure they are set even if already present)
+        os.environ["REDOX_CLIENT_ID"] = REDOX_CLIENT_ID
+        os.environ["REDOX_KEY_ID"] = REDOX_PUBLIC_KEY_ID
+        os.environ["REDOX_PUBLIC_KEY_ID"] = REDOX_PUBLIC_KEY_ID
+        os.environ["REDOX_PRIVATE_KEY"] = REDOX_PRIVATE_KEY
         os.environ["REDOX_PRIVATE_KEY_PATH"] = temp_key_file.name
         
         # Also try uppercase variants
         os.environ["CLIENTID"] = CLIENT_ID
         os.environ["KEYID"] = KID
         
-        print(f"[redox-proxy] Secrets retrieved and environment variables set", file=sys.stderr)
+        print(f"[redox-proxy] Environment variables retrieved and set", file=sys.stderr)
         print(f"[redox-proxy] Private key written to: {temp_key_file.name}", file=sys.stderr)
-        print(f"[redox-proxy] Set environment variables:", file=sys.stderr)
-        print(f"[redox-proxy]   CLIENT_ID (length): {len(CLIENT_ID)}", file=sys.stderr)
-        print(f"[redox-proxy]   KEY_ID (length): {len(KID)}", file=sys.stderr)
+        print(f"[redox-proxy] Configuration summary:", file=sys.stderr)
+        print(f"[redox-proxy]   REDOX_CLIENT_ID length: {len(REDOX_CLIENT_ID)}", file=sys.stderr)
+        print(f"[redox-proxy]   OAUTH_CLIENT_ID length: {len(OAUTH_CLIENT_ID)}", file=sys.stderr)
+        print(f"[redox-proxy]   REDOX_PUBLIC_KEY_ID length: {len(REDOX_PUBLIC_KEY_ID)}", file=sys.stderr)
+        print(f"[redox-proxy]   OAUTH_KEY_ID length: {len(OAUTH_KEY_ID)}", file=sys.stderr)
+        print(f"[redox-proxy]   REDOX_PRIVATE_KEY length: {len(REDOX_PRIVATE_KEY)}", file=sys.stderr)
+        print(f"[redox-proxy]   OAUTH_PRIVATE_KEY length: {len(OAUTH_PRIVATE_KEY)}", file=sys.stderr)
         print(f"[redox-proxy]   Key file path: {temp_key_file.name}", file=sys.stderr)
         print(f"[redox-proxy]   Key file exists: {os.path.exists(temp_key_file.name)}", file=sys.stderr)
         
@@ -385,14 +432,14 @@ async def root():
         , "status": "running"
         , "mcp_process_alive": redox_proc.is_alive()
         , "endpoints": {
-            "health": "/health"
-            , "tools": "/tools"
-            , "debug_env": "/debug/env"
+            "health": "/api/v1/health"
+            , "tools": "/api/v1/tools"
+            , "debug_env": "/api/v1/debug/env"
             , "mcp": "/mcp"
         }
     }
 
-@app.get("/health")
+@app.get("/api/v1/health")
 async def health_check():
     """Health check endpoint for monitoring"""
     is_alive = redox_proc.is_alive()
@@ -414,7 +461,7 @@ async def health_check():
         , "redox_api_endpoint": "https://api.redoxengine.com/"
     }
 
-@app.get("/debug/env")
+@app.get("/api/v1/debug/env")
 async def debug_env():
     """Debug endpoint to show OAuth-related environment variables"""
     oauth_vars = {k: v for k, v in os.environ.items() if 
@@ -437,7 +484,7 @@ async def debug_env():
         , "note": "Sensitive values are partially masked"
     }
 
-@app.get("/tools")
+@app.get("/api/v1/tools")
 async def list_tools():
     """List all available tools from the MCP server"""
     try:
