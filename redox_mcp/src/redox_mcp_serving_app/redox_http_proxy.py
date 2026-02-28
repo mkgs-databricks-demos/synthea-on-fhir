@@ -289,12 +289,13 @@ class RedoxMCPProcess:
         fut: asyncio.Future = self._loop.create_future()
         self._pending[rpc_id] = fut
         try:
-            resp = await asyncio.wait_for(fut, timeout=120.0)
+            # Reduced timeout to 35s to stay under platform's 40s limit
+            resp = await asyncio.wait_for(fut, timeout=35.0)
             print(f"[redox-proxy] Received response: {json.dumps(resp)[:200]}...", file=sys.stderr)
             return resp
         except asyncio.TimeoutError:
             print(f"[redox-proxy] Timeout waiting for response to request ID: {rpc_id}", file=sys.stderr)
-            raise HTTPException(status_code=504, detail=f"Timeout waiting for MCP response")
+            raise HTTPException(status_code=504, detail=f"Timeout waiting for MCP response (35s limit)")
 
     def is_alive(self) -> bool:
         """Check if the MCP process is running"""
