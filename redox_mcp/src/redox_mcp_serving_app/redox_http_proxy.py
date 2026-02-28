@@ -33,7 +33,7 @@ REDOX_BINARY_PATH = None
 def initialize_binary():
     global REDOX_BINARY_PATH
     try:
-        VOLUME_BINARY_PATH = os.environ.get("REDOX_BINARY_PATH", "/Volumes/mkgs/redox/bin/redox-mcp-linux-x64")
+        VOLUME_BINARY_PATH = f"{os.environ.get('REDOX_BINARY_VOLUME')}/redox-mcp-linux-x64")
         print(f"[redox-proxy] Downloading binary from volume: {VOLUME_BINARY_PATH}", file=sys.stderr)
         temp_binary = tempfile.NamedTemporaryFile(
             mode='wb'

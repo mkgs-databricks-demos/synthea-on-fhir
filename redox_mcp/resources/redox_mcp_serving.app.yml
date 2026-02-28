@@ -6,25 +6,6 @@ resources:
       description: "An application to serve the Redox MCP Server on Databricks"
       lifecycle:
         prevent_destroy: false
-      # config:
-      #   command: ["uvicorn", "redox_http_proxy:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "debug"]
-      #   env: 
-      #     - name: SECRET_SCOPE_NAME
-      #       value: ${var.secret_scope_name}
-      #     - name: REDOX_BINARY_PATH
-      #       value: ${resources.volumes.source_bin.volume_path}/redox-mcp-linux-x64
-      #     - name: OAUTH_PRIVATE_KEY
-      #       value_from: redox_private_key
-      #     - name: OAUTH_CLIENT_ID
-      #       value_from: redox_client_id
-      #     - name: OAUTH_KEY_ID
-      #       value_from: redox_kid
-      #     - name: REDOX_PRIVATE_KEY
-      #       value_from: redox_private_key
-      #     - name: REDOX_CLIENT_ID
-      #       value_from: redox_client_id
-      #     - name: REDOX_PUBLIC_KEY_ID
-      #       value_from: redox_kid
       resources:
         - name: redox_public_key
           description: "Redox Authentication Public Key"
