@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional, List
 from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
@@ -512,7 +512,7 @@ class RedoxMCPProcess:
             , "method": "initialize"
             , "id": "startup_init"
             , "params": {
-                "protocolVersion": "2024-11-05"
+                "protocolVersion": "2025-11-25"
                 , "capabilities": {}
                 , "clientInfo": {
                     "name": "redox-http-proxy"
@@ -605,6 +605,68 @@ class RedoxMCPProcess:
             self._read_task = None
             self._stderr_task = None
             logger.info("MCP process stopped")
+
+# ============================================================================
+# JSON-RPC Error Codes (per JSON-RPC 2.0 specification)
+# ============================================================================
+class JsonRpcErrorCode:
+    """Standard JSON-RPC 2.0 error codes"""
+    PARSE_ERROR = -32700
+    INVALID_REQUEST = -32600
+    METHOD_NOT_FOUND = -32601
+    INVALID_PARAMS = -32602
+    INTERNAL_ERROR = -32603
+    SERVER_ERROR = -32000  # -32000 to -32099 reserved for implementation-defined errors
+
+def create_jsonrpc_error_response(
+    code: int
+    , message: str
+    , data: Optional[Dict[str, Any]] = None
+    , request_id: Optional[int | str] = None
+) -> Dict[str, Any]:
+    """Create a JSON-RPC 2.0 compliant error response"""
+    error_response = {
+        "jsonrpc": "2.0"
+        , "error": {
+            "code": code
+            , "message": message
+        }
+        , "id": request_id
+    }
+    
+    if data is not None:
+        error_response["error"]["data"] = data
+    
+    return error_response
+
+# ============================================================================
+# SSE (Server-Sent Events) Helper Functions
+# ============================================================================
+def format_sse_message(data: Dict[str, Any], event: Optional[str] = None) -> str:
+    """Format a message as Server-Sent Events (SSE) format"""
+    lines = []
+    if event:
+        lines.append(f"event: {event}")
+    
+    # SSE requires data to be on lines starting with "data: "
+    json_data = json.dumps(data)
+    lines.append(f"data: {json_data}")
+    lines.append("")  # Empty line terminates the message
+    
+    return "\n".join(lines) + "\n"
+
+async def sse_generator(response_data: Dict[str, Any]):
+    """Generator for SSE responses"""
+    # Send the response as SSE
+    yield format_sse_message(response_data, event="message")
+    
+    # Send done event to indicate completion
+    yield format_sse_message({"done": True}, event="done")
+
+def should_use_sse(request: Request) -> bool:
+    """Determine if the request expects SSE response based on Accept header"""
+    accept_header = request.headers.get("accept", "")
+    return "text/event-stream" in accept_header
 
 # ============================================================================
 # Application Initialization
@@ -730,7 +792,9 @@ async def root():
             , "debug_env": "/api/v1/debug/env"
             , "debug_process": "/api/v1/debug/process"
             , "debug_test_mcp": "/api/v1/debug/test-mcp"
-            , "mcp": "/mcp"
+            , "mcp": "/mcp (legacy)"
+            , "messages": "/messages (MCP standard)"
+            , "mcp_v1": "/mcp/v1 (versioned)"
         }
     }
 
@@ -856,19 +920,45 @@ async def list_tools():
         )
 
 @app.post("/mcp")
-async def mcp_endpoint(req: JsonRpcRequest, request: Request) -> Dict[str, Any]:
-    """Main MCP endpoint for JSON-RPC requests"""
+@app.post("/messages")
+@app.post("/mcp/v1")
+async def mcp_endpoint(req: JsonRpcRequest, request: Request):
+    """Main MCP endpoint for JSON-RPC requests with SSE support
+    
+    Supports multiple paths for compatibility:
+    - /mcp: Legacy path for backward compatibility
+    - /messages: Standard MCP streamable-http path
+    - /mcp/v1: Versioned API path
+    """
     logger.info(f"MCP endpoint called with method: {req.method}")
     
     # Check if client disconnected
     if await request.is_disconnected():
         logger.warning("Client disconnected before processing request")
-        raise HTTPException(status_code=499, detail="Client disconnected")
+        error_response = create_jsonrpc_error_response(
+            code=JsonRpcErrorCode.SERVER_ERROR
+            , message="Client disconnected"
+            , request_id=req.id
+        )
+        return JSONResponse(status_code=499, content=error_response)
     
     # Handle initialize specially - return cached response if already initialized
     if req.method == "initialize" and redox_proc._initialized and redox_proc._init_response:
         logger.info("Returning cached initialize response (server already initialized)")
-        return redox_proc._init_response
+        cached_response = redox_proc._init_response
+        
+        # Check if SSE is requested
+        if should_use_sse(request):
+            return StreamingResponse(
+                sse_generator(cached_response)
+                , media_type="text/event-stream"
+                , headers={
+                    "Cache-Control": "no-cache"
+                    , "Connection": "keep-alive"
+                    , "X-Accel-Buffering": "no"
+                }
+            )
+        return cached_response
     
     request_dict = req.model_dump(exclude_none=True)
     
@@ -886,12 +976,96 @@ async def mcp_endpoint(req: JsonRpcRequest, request: Request) -> Dict[str, Any]:
             if "auth" in error_message.lower() or "unauthorized" in error_message.lower():
                 logger.error("AUTHENTICATION ERROR detected with Redox API")
         
+        # Return as SSE if requested
+        if should_use_sse(request):
+            return StreamingResponse(
+                sse_generator(resp)
+                , media_type="text/event-stream"
+                , headers={
+                    "Cache-Control": "no-cache"
+                    , "Connection": "keep-alive"
+                    , "X-Accel-Buffering": "no"
+                }
+            )
+        
         return resp
-    except HTTPException:
-        raise
+    except HTTPException as http_exc:
+        # Convert HTTPException to JSON-RPC error for MCP compliance
+        logger.error(f"HTTP error in mcp_endpoint: {http_exc.detail}")
+        
+        # Map HTTP status to JSON-RPC error code
+        if http_exc.status_code == 504:
+            code = JsonRpcErrorCode.INTERNAL_ERROR
+        elif http_exc.status_code == 500:
+            code = JsonRpcErrorCode.INTERNAL_ERROR
+        else:
+            code = JsonRpcErrorCode.SERVER_ERROR
+        
+        error_response = create_jsonrpc_error_response(
+            code=code
+            , message=http_exc.detail
+            , request_id=req.id
+        )
+        
+        if should_use_sse(request):
+            return StreamingResponse(
+                sse_generator(error_response)
+                , media_type="text/event-stream"
+                , headers={
+                    "Cache-Control": "no-cache"
+                    , "Connection": "keep-alive"
+                    , "X-Accel-Buffering": "no"
+                }
+            )
+        
+        return JSONResponse(status_code=200, content=error_response)
     except Exception as e:
-        logger.error(f"Error in mcp_endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error in mcp_endpoint: {e}", exc_info=True)
+        
+        # Return JSON-RPC error response
+        error_response = create_jsonrpc_error_response(
+            code=JsonRpcErrorCode.INTERNAL_ERROR
+            , message="Internal server error"
+            , data={"error": str(e)}
+            , request_id=req.id
+        )
+        
+        if should_use_sse(request):
+            return StreamingResponse(
+                sse_generator(error_response)
+                , media_type="text/event-stream"
+                , headers={
+                    "Cache-Control": "no-cache"
+                    , "Connection": "keep-alive"
+                    , "X-Accel-Buffering": "no"
+                }
+            )
+        
+        return JSONResponse(status_code=200, content=error_response)
+
+@app.options("/mcp")
+@app.options("/messages")
+@app.options("/mcp/v1")
+async def mcp_options():
+    """OPTIONS handler for MCP endpoints
+    
+    Supports CORS preflight requests and advertises MCP server capabilities.
+    Returns headers indicating supported methods, content types, and MCP protocol version.
+    """
+    return Response(
+        status_code=200
+        , headers={
+            "Allow": "POST, OPTIONS"
+            , "Accept": "application/json, text/event-stream"
+            , "Content-Type": "application/json"
+            , "X-MCP-Protocol-Version": "2025-11-25"
+            , "X-MCP-Server-Name": "redox-http-proxy"
+            , "X-MCP-Server-Version": "1.0.0"
+            , "X-MCP-Capabilities": "tools,resources"
+            , "Access-Control-Allow-Methods": "POST, OPTIONS"
+            , "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization"
+        }
+    )
 
 # ============================================================================
 # Main Entry Point
