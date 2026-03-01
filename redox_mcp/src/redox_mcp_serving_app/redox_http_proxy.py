@@ -927,8 +927,7 @@ async def test_mcp():
         logger.error(f"MCP test failed: {e}", exc_info=True)
         return {
             "success": False
-            , "error": str(e)
-            , "message": "MCP binary did not respond"
+            , "message": "MCP binary did not respond due to an internal error"
         }
 
 @app.get("/api/v1/tools")
