@@ -527,6 +527,13 @@ class RedoxMCPProcess:
         
         logger.info(f"MCP server initialized: {json.dumps(init_response)[:200]}")
         
+        # Override the binary's protocolVersion to match what we sent
+        # This allows the HTTP proxy to act as a protocol version adapter
+        if "result" in init_response and "protocolVersion" in init_response["result"]:
+            original_version = init_response["result"]["protocolVersion"]
+            init_response["result"]["protocolVersion"] = "2025-11-25"
+            logger.info(f"Protocol version override: {original_version} -> 2025-11-25")
+        
         # Send initialized notification (required by MCP protocol)
         logger.info("Sending initialized notification...")
         await self.send({
