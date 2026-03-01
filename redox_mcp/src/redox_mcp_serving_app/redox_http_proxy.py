@@ -225,16 +225,13 @@ class RedoxMCPProcess:
         # Copy current environment
         env = os.environ.copy()
         
-        # Log OAuth-related env vars (sanitized)
+        # Log a non-sensitive summary of OAuth-related env vars
         oauth_vars = [k for k in env.keys() if 
                      'CLIENT' in k.upper() or 
                      'KEY' in k.upper() or 
                      'OAUTH' in k.upper() or 
                      'REDOX' in k.upper()]
-        for var in sorted(oauth_vars):
-            value = env[var]
-            # Do not log secret values; only log that the variable is set and its length
-            logger.info(f"  {var}: [value redacted] (length={len(value)})")
+        logger.info("Detected %d OAuth/Redox-related environment variables (details redacted).", len(oauth_vars))
         
         try:
             self._proc = subprocess.Popen(
