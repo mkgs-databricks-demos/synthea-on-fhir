@@ -6,8 +6,15 @@ include:
   - resources/*.volume.yml
   - resources/*.schema.yml
   - resources/*.secret_scope.yml
-  - resources/deployment.yml.py
   - resources/*/*.yml
+
+# Python support for dynamic resource deployment
+python:
+  # Virtual environment containing databricks-bundles package
+  venv_path: .venv
+  # Functions called to load resources defined in Python
+  resources:
+    - 'resources:load_resources'
 
 # app deployment command: databricks apps deploy mcp-redox --source-code-path /Workspace/.bundle/redox_mcp/prod/files/src/redox_mcp_serving_app
 
@@ -155,7 +162,7 @@ targets:
         RemoveAfter: ${var.tags_RemoveAfter}
         env: ${bundle.target}
     workspace:
-      host: https://fe-sandbox-himss2026.cloud.databricks.com
+      host: https://fe-sandbox-himss2026.cloud.databricks.com/
       root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
     # run_as:
     #   user_name: ${var.run_as_user}

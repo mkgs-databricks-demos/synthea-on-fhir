@@ -1,0 +1,8 @@
+# Python dependencies for Databricks Asset Bundles
+# Install with: pip install -r requirements.txt
+
+# Databricks Bundles SDK for Python-based resource definitions
+databricks-bundles>=0.275.0
+
+# PyYAML for YAML file generation (if needed for other purposes)
+PyYAML>=6.0
