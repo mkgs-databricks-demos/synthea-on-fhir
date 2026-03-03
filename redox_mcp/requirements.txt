@@ -4,5 +4,8 @@
 # Databricks Bundles SDK for Python-based resource definitions
 databricks-bundles>=0.275.0
 
-# PyYAML for YAML file generation (if needed for other purposes)
+# Databricks SDK for workspace API interactions (used in dynamic_deployment.py)
+databricks-sdk>=0.30.0
+
+# PyYAML for YAML file parsing and generation
 PyYAML>=6.0
