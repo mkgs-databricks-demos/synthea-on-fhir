@@ -20,12 +20,23 @@ resources:
       timeout_seconds: 7200  # 2 hours
       max_concurrent_runs: 1
       
+      # Serverless environment configuration
+      environments:
+        - environment_key: "serverless_env_v4"
+          spec:
+            environment_version: "4"
+            dependencies:
+              - "faker"  # Dependencies installed in the environment
+      
       tasks:
         - task_key: generate_hl7_adt_messages
           description: "Generate synthetic HL7 ADT messages with Phase 1 & 2 enhancements"
           
+          # Use serverless environment (version 4)
+          environment_key: "serverless_env_v4"
+          
           notebook_task:
-            notebook_path: ../src/adt-generators
+            notebook_path: ../src/adt-generators.ipynb
             source: WORKSPACE
             
             # Pass variables as notebook parameters
@@ -42,22 +53,6 @@ resources:
               volume_name: "${var.volume_name}"
               relative_path: "${var.relative_path}"
           
-          # Serverless compute configuration
-          new_cluster:
-            spark_version: "15.4.x-scala2.12"
-            node_type_id: "i3.xlarge"
-            num_workers: 2
-            spark_conf:
-              "spark.databricks.cluster.profile": "serverless"
-            custom_tags:
-              project: "adt_generation"
-              owner: "matthew.giglia@databricks.com"
-          
-          # Libraries
-          libraries:
-            - pypi:
-                package: "faker"
-          
           # Timeout for this specific task
           timeout_seconds: 3600  # 1 hour
           
@@ -71,3 +66,4 @@ resources:
         environment: "${bundle.target}"
         project: "adt_generation"
         notebook: "adt-generators"
+        compute: "serverless"
