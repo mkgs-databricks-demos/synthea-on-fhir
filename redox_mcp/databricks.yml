@@ -158,7 +158,7 @@ targets:
         RemoveAfter: ${var.tags_RemoveAfter}
         env: ${bundle.target}
     workspace:
-      host: https://fe-sandbox-himss2026.cloud.databricks.com/
+      host: https://fe-sandbox-himss2026.cloud.databricks.com
       root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
     # run_as:
     #   user_name: ${var.run_as_user}

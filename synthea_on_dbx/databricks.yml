@@ -144,7 +144,7 @@ targets:
         env: ${bundle.target}
     default: false
     workspace:
-      host: https://fe-sandbox-himss2026.cloud.databricks.com/
+      host: https://fe-sandbox-himss2026.cloud.databricks.com
       root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
     git:
       origin_url: https://github.com/mkgs-databricks-demos/synthea-on-fhir.git
