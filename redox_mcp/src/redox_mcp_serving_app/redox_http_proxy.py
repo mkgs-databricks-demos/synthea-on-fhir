@@ -110,12 +110,13 @@ sys.excepthook = handle_exception
 class BinaryManager:
     """Manages MCP binary download and caching"""
     
-    def __init__(self, workspace_client: WorkspaceClient, volume_path: str, binary_name: str = Settings.redox_binary_filename):
+    def __init__(self, workspace_client: WorkspaceClient, volume_path: str, settings: Settings):
         self.w = workspace_client
         self.volume_path = volume_path
         self.cache_dir = Path("/tmp/redox_mcp_cache")
         self.cache_dir.mkdir(exist_ok=True)
-        self.binary_name = binary_name
+        self.settings = settings
+        self.binary_name = self.settings.redox_binary_filename
     
     def get_cached_binary_path(self) -> Optional[str]:
         """Check if binary exists in cache"""
