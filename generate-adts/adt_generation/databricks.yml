@@ -75,6 +75,5 @@ targets:
       user_name: matthew.giglia@databricks.com
     variables:
       catalog_use: himss
-      schema: redox
+      schema_use: redox
       volume_name: extract
-      user_name: matthew.giglia@databricks.com
