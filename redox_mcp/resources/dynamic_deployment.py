@@ -63,10 +63,12 @@ class DynamicResources:
         self, 
         scope_yaml_path: Optional[str] = None
     ) -> bool:
-        """Deploy the secret scope from YAML file if it doesn't exist.
+        """Deploy the secret scope from YAML file if it doesn't exist or is managed by bundle.
         
         Loads the resource configuration from redox_oauth.secret_scope.yml 
-        in the same directory as this file.
+        in the same directory as this file. Deploys if:
+        - The secret scope doesn't exist in the workspace, OR
+        - The secret scope is part of this bundle's resources (managed by bundle)
         
         Args:
             scope_yaml_path: Path to the secret scope YAML configuration file. 
@@ -74,16 +76,31 @@ class DynamicResources:
                            directory as this Python file.
             
         Returns:
-            True if scope was deployed, False if it already exists or deployment failed
+            True if scope was deployed, False if it already exists (and not managed 
+            by bundle) or deployment failed
         """
         scope_exists, _ = self._check_secret_scope_and_key()
+        is_managed_by_bundle = self._is_secret_scope_in_bundle()
         
-        if scope_exists:
+        # If scope exists and is NOT managed by this bundle, skip deployment
+        if scope_exists and not is_managed_by_bundle:
             logger.info(
-                "Secret scope '%s' already exists. Skipping deployment.",
+                "Secret scope '%s' already exists and is not managed by this bundle. Skipping deployment.",
                 self.secret_scope_name
             )
             return False
+        
+        # Deploy if scope doesn't exist OR if it's managed by this bundle
+        if is_managed_by_bundle:
+            logger.info(
+                "Secret scope '%s' is managed by this bundle. Proceeding with deployment/update.",
+                self.secret_scope_name
+            )
+        else:
+            logger.info(
+                "Secret scope '%s' does not exist. Proceeding with deployment.",
+                self.secret_scope_name
+            )
         
         try:
             yaml_path = self._get_yaml_path(scope_yaml_path, self.DEFAULT_SECRET_SCOPE_YAML)
@@ -232,6 +249,38 @@ class DynamicResources:
             return False, False
         
         return scope_exists, key_exists
+
+    def _is_secret_scope_in_bundle(self) -> bool:
+        """Check if the secret scope is part of this bundle's resources.
+        
+        Returns:
+            True if the secret scope is managed by this bundle, False otherwise
+        """
+        try:
+            # Check if bundle has secret_scopes resources
+            if not hasattr(self.bundle.resources, 'secret_scopes'):
+                return False
+            
+            # Check if our specific secret scope is in the bundle's resources
+            secret_scopes = self.bundle.resources.secret_scopes
+            if not secret_scopes:
+                return False
+            
+            # Check if any secret scope in the bundle matches our scope name
+            for scope_key, scope_resource in secret_scopes.items():
+                if hasattr(scope_resource, 'name') and scope_resource.name == self.secret_scope_name:
+                    logger.debug(
+                        "Secret scope '%s' found in bundle resources with key '%s'",
+                        self.secret_scope_name,
+                        scope_key
+                    )
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.debug("Error checking if secret scope is in bundle: %s", e)
+            return False
 
     def _check_file_in_volume(
         self,
