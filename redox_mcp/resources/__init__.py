@@ -4,8 +4,12 @@ from databricks.bundles.core import (
     Resources,
     load_resources_from_current_package_module,
 )
-from .dynamic_deployment import DynamicResources
 
+# Configure logging to ensure debug messages are visible
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 
@@ -28,34 +32,60 @@ def load_resources(bundle: Bundle) -> Resources:
     
     # Attempt dynamic deployment with graceful fallback
     try:
-        logger.info("Attempting dynamic deployment...")
+        # Import DynamicResources here to avoid Spark session errors during module load
+        from .dynamic_deployment import DynamicResources
+        
+        logger.info("=" * 60)
+        logger.info("STARTING DYNAMIC DEPLOYMENT")
+        logger.info("=" * 60)
         deployer = DynamicResources(bundle)
         
         # Deploy secret scope if missing
-        deployer.deploy_secret_scope_if_missing()
+        logger.info("Checking if secret scope should be deployed...")
+        scope_deployed = deployer.deploy_secret_scope_if_missing()
+        logger.info("Secret scope deployment result: %s", "DEPLOYED" if scope_deployed else "SKIPPED")
         
         # Deploy app if all prerequisites are met
         # Uses the bundle variable redox_binary_filename for the binary filename
-        deployer.deploy_app_if_ready()
+        logger.info("Checking if app should be deployed...")
+        app_deployed = deployer.deploy_app_if_ready()
+        logger.info("App deployment result: %s", "DEPLOYED" if app_deployed else "SKIPPED")
         
         # Get the dynamically added resources
         dynamic_resources = deployer.get_resources()
         
         # Merge dynamic resources into base resources
+        logger.info("Merging dynamic resources into base resources...")
         if hasattr(dynamic_resources, 'secret_scopes') and dynamic_resources.secret_scopes:
             if not hasattr(base_resources, 'secret_scopes'):
                 base_resources.secret_scopes = {}
+            scope_count = len(dynamic_resources.secret_scopes)
             base_resources.secret_scopes.update(dynamic_resources.secret_scopes)
-            logger.info("Merged dynamic secret scopes into base resources")
+            logger.info("✓ Merged %d secret scope(s): %s", scope_count, list(dynamic_resources.secret_scopes.keys()))
+        else:
+            logger.info("No secret scopes to merge from dynamic deployment")
         
         if hasattr(dynamic_resources, 'apps') and dynamic_resources.apps:
             if not hasattr(base_resources, 'apps'):
                 base_resources.apps = {}
+            app_count = len(dynamic_resources.apps)
             base_resources.apps.update(dynamic_resources.apps)
-            logger.info("Merged dynamic apps into base resources")
+            logger.info("✓ Merged %d app(s): %s", app_count, list(dynamic_resources.apps.keys()))
+        else:
+            logger.info("No apps to merge from dynamic deployment")
         
-        logger.info("Dynamic deployment completed successfully")
+        logger.info("=" * 60)
+        logger.info("DYNAMIC DEPLOYMENT COMPLETED SUCCESSFULLY")
+        logger.info("=" * 60)
         
+    except ImportError as e:
+        # Import failed - likely due to missing dependencies or Spark session
+        logger.warning(
+            "Dynamic deployment skipped due to import error: %s. "
+            "This may occur when cluster is terminated or dependencies are missing. "
+            "Proceeding with static resources only.",
+            str(e)
+        )
     except ValueError as e:
         # Authentication failed - this is expected during bundle deployment
         logger.warning(

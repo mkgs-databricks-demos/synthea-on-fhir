@@ -58,22 +58,22 @@ class DynamicResources:
         self.redox_binary_filename = self.bundle.resolve_variable(Variables.redox_binary_filename)
         
         # Lazy initialization - client is created only when first accessed
-        self._workspace_client: Optional[WorkspaceClient] = None
+        # self._workspace_client: Optional[WorkspaceClient] = None
         self._resources_dir = Path(__file__).parent
 
-    @property
-    def workspace_client(self) -> WorkspaceClient:
-        """Get WorkspaceClient instance, initializing lazily on first access.
+    # @property
+    # def workspace_client(self) -> WorkspaceClient:
+    #     """Get WorkspaceClient instance, initializing lazily on first access.
         
-        Returns:
-            Configured WorkspaceClient instance
+    #     Returns:
+    #         Configured WorkspaceClient instance
             
-        Raises:
-            ValueError: If authentication fails
-        """
-        if self._workspace_client is None:
-            self._workspace_client = self._initialize_workspace_client()
-        return self._workspace_client
+    #     Raises:
+    #         ValueError: If authentication fails
+    #     """
+    #     if self._workspace_client is None:
+    #         self._workspace_client = self._initialize_workspace_client()
+    #     return self._workspace_client
 
     def deploy_secret_scope_if_missing(
         self, 
@@ -251,37 +251,58 @@ class DynamicResources:
         import os
         from databricks.sdk.config import Config
         
+        # Log environment variables status for debugging
+        host_env = os.getenv('DATABRICKS_HOST')
+        token_env = os.getenv('DATABRICKS_TOKEN')
+        profile_env = os.getenv('DATABRICKS_CONFIG_PROFILE')
+        
+        logger.info("=== WorkspaceClient Authentication Debug ===")
+        logger.info("DATABRICKS_HOST present: %s", bool(host_env))
+        logger.info("DATABRICKS_TOKEN present: %s", bool(token_env))
+        logger.info("DATABRICKS_CONFIG_PROFILE: %s", profile_env or "not set")
+        if host_env:
+            logger.info("DATABRICKS_HOST value: %s", host_env)
+        
         # Strategy 1: Try default profile (CLI context)
+        logger.info("Attempting Strategy 1: Default profile (~/.databrickscfg)")
         try:
             # This uses ~/.databrickscfg DEFAULT profile
             client = WorkspaceClient()
-            logger.info("Authenticated using default profile")
+            # Test the connection
+            user_info = client.current_user.me()
+            logger.info("✓ Strategy 1 SUCCESS: Authenticated as %s using default profile", user_info.user_name)
             return client
         except Exception as e:
-            logger.debug("Default profile authentication failed: %s", e)
+            logger.warning("✗ Strategy 1 FAILED: Default profile authentication failed: %s", str(e))
         
         # Strategy 2: Try environment variables
+        logger.info("Attempting Strategy 2: Environment variables")
         try:
-            host = os.getenv('DATABRICKS_HOST')
-            token = os.getenv('DATABRICKS_TOKEN')
-            if host and token:
-                client = WorkspaceClient(host=host, token=token)
-                logger.info("Authenticated using environment variables")
+            if host_env and token_env:
+                client = WorkspaceClient(host=host_env, token=token_env)
+                # Test the connection
+                user_info = client.current_user.me()
+                logger.info("✓ Strategy 2 SUCCESS: Authenticated as %s using environment variables", user_info.user_name)
                 return client
+            else:
+                logger.warning("✗ Strategy 2 SKIPPED: Missing DATABRICKS_HOST or DATABRICKS_TOKEN")
         except Exception as e:
-            logger.debug("Environment variable authentication failed: %s", e)
+            logger.warning("✗ Strategy 2 FAILED: Environment variable authentication failed: %s", str(e))
         
         # Strategy 3: Try runtime authentication (notebook context)
-        # This will fail during bundle deployment but works in notebooks
+        logger.info("Attempting Strategy 3: Runtime authentication")
         try:
             config = Config()
             client = WorkspaceClient(config=config)
-            logger.info("Authenticated using runtime credentials")
+            # Test the connection
+            user_info = client.current_user.me()
+            logger.info("✓ Strategy 3 SUCCESS: Authenticated as %s using runtime credentials", user_info.user_name)
             return client
         except Exception as e:
-            logger.debug("Runtime authentication failed: %s", e)
+            logger.warning("✗ Strategy 3 FAILED: Runtime authentication failed: %s", str(e))
         
         # All strategies failed
+        logger.error("=== All Authentication Strategies Failed ===")
         raise ValueError(
             "Failed to authenticate WorkspaceClient. Tried: "
             "1) default profile, 2) environment variables, 3) runtime auth. "
@@ -299,15 +320,17 @@ class DynamicResources:
         """
         scope_exists = False
         key_exists = False
+
+        workspace_client = self._initialize_workspace_client()
         
         try:
             # Check if scope exists by listing all scopes
-            scopes = self.workspace_client.secrets.list_scopes()
+            scopes = workspace_client.secrets.list_scopes()
             scope_exists = any(scope.name == self.secret_scope_name for scope in scopes)
             
             if scope_exists:
                 # Check if the key exists in the scope
-                secrets = self.workspace_client.secrets.list_secrets(
+                secrets = workspace_client.secrets.list_secrets(
                     scope=self.secret_scope_name
                 )
                 key_exists = any(secret.key == self.client_id_dbs_key for secret in secrets)
@@ -370,6 +393,9 @@ class DynamicResources:
         Returns:
             True if the file exists, False otherwise
         """
+
+        workspace_client = self._initialize_workspace_client()
+
         try:
             # Get the volume resource from the bundle's resources
             if not hasattr(self.bundle.resources, 'volumes'):
@@ -392,7 +418,7 @@ class DynamicResources:
             
             # Check if the file exists using the workspace client
             try:
-                self.workspace_client.files.get_status(volume_path)
+                workspace_client.files.get_status(volume_path)
                 logger.info("File found: %s", volume_path)
                 return True
             except (NotFound, ResourceDoesNotExist):
