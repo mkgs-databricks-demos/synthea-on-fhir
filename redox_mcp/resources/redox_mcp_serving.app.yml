@@ -9,7 +9,7 @@ resources:
       config:
         env:
           - name: REDOX_BINARY_FILENAME
-            value: ${var.redox_binary_filename}
+            value: redox-mcp-linux-x64
       resources:
         - name: redox_public_key
           description: "Redox Authentication Public Key"
