@@ -8,14 +8,6 @@ include:
   - resources/*.secret_scope.yml
   - resources/*/*.yml
 
-# # Python support for dynamic resource deployment
-# python:
-#   # Virtual environment containing databricks-bundles package
-#   venv_path: .venv
-#   # Functions called to load resources defined in Python
-#   resources:
-#     - 'resources:load_resources'
-
 # app deployment command: databricks apps deploy mcp-redox --source-code-path /Workspace/.bundle/redox_mcp/prod/files/src/redox_mcp_serving_app
 
 # Variable declarations. These variables are assigned in the dev/prod targets below.
