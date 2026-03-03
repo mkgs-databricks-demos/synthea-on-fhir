@@ -6,7 +6,7 @@ include:
   - resources/*.volume.yml
   - resources/*.schema.yml
   - resources/*.secret_scope.yml
-  - resources/*.app.yml
+  - resources/deployment.yml.py
   - resources/*/*.yml
 
 # app deployment command: databricks apps deploy mcp-redox --source-code-path /Workspace/.bundle/redox_mcp/prod/files/src/redox_mcp_serving_app
