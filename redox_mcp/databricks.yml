@@ -5,7 +5,7 @@ bundle:
 include:
   - resources/*.volume.yml
   - resources/*.schema.yml
-  - resources/*.secret_scope.yml
+  # - resources/*.secret_scope.yml
   - resources/*/*.yml
 
 # Python support for dynamic resource deployment

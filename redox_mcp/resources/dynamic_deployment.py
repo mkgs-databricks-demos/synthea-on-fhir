@@ -1,102 +1,355 @@
 """
 Resources initialization for dynamic DABs deployment.
-This module loads bundle resources conditionally based on deployment_config.json.
+
+This module loads bundle resources conditionally based on runtime checks
+of secret scopes, keys, and volume files.
 """
 import json
-import os
+import logging
 from pathlib import Path
-from databricks.bundles.core import Bundle, Resources
+from typing import Optional
+
+import yaml
+from databricks.bundles.core import Bundle, Resources, Variable, variables
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.errors import NotFound, ResourceDoesNotExist
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
-# def load_resources(bundle: Bundle) -> Resources:
-#     """
-#     Load bundle resources conditionally based on target configuration.
+@variables
+class Variables:
+    """Bundle variables for dynamic deployment."""
     
-#     This function is called by Databricks CLI during bundle deployment.
-#     It reads deployment_config.json and conditionally adds resources
-#     based on the target environment.
-#     """
-#     # Load deployment configuration
-#     config_file = Path(__file__).parent.parent / "deployment_config.json"
-#     with open(config_file) as f:
-#         config = json.load(f)
+    secret_scope_name: Variable[str]
+    client_id_dbs_key: Variable[str]
+    run_as_user: Variable[str]
+
+
+class DynamicResources:
+    """Manages dynamic resource loading for DABs deployment.
     
-#     # Get target from bundle context
-#     target = bundle.target
-#     target_config = config.get(target, {})
+    This class handles conditional deployment of Databricks resources based on
+    runtime checks of secret scopes, keys, and volume files.
+    """
     
-#     print(f"[PyDABs] Loading resources for target: {target}")
-#     print(f"[PyDABs] Configuration: {json.dumps(target_config, indent=2)}")
+    # Class constants for default file paths and resource keys
+    DEFAULT_SECRET_SCOPE_YAML = "redox_oauth.secret_scope.yml"
+    DEFAULT_APP_YAML = "redox_mcp_serving.app.yml"
+    DEFAULT_VOLUME_KEY = "source_bin"
     
-#     # Initialize empty resources
-#     resources = Resources()
-    
-#     # Conditionally add app resource
-#     if target_config.get("deploy_app", False):
-#         print("[PyDABs] ✓ Including app resource")
+    def __init__(self, bundle: Bundle, config_path: Optional[str] = None) -> None:
+        """Initialize DynamicResources with configuration.
         
-#         from databricks.sdk.service.apps import App
+        Args:
+            bundle: The Databricks bundle instance
+            config_path: Optional path to an external configuration JSON file.
+                        Not required for normal bundle operation.
+        """
+        self.bundle = bundle
+        self.config_path = Path(config_path) if config_path else None
+        self.config = self._load_config()
+        self.resources = Resources()
+        self.secret_scope_name = self.bundle.resolve_variable(Variables.secret_scope_name)
+        self.client_id_dbs_key = self.bundle.resolve_variable(Variables.client_id_dbs_key)
+        self.run_as_user = self.bundle.resolve_variable(Variables.run_as_user)
+        self.workspace_client = WorkspaceClient()
+        self._resources_dir = Path(__file__).parent
+
+    def deploy_secret_scope_if_missing(
+        self, 
+        scope_yaml_path: Optional[str] = None
+    ) -> bool:
+        """Deploy the secret scope from YAML file if it doesn't exist.
         
-#         # Define the app resource
-#         resources.apps["redox_mcp_serving_app"] = App(
-#             name="mcp-redox",
-#             source_code_path="../src/redox_mcp_serving_app/",
-#             description="An application to serve the Redox MCP Server on Databricks",
-#             resources=[
-#                 {
-#                     "name": "redox_public_key",
-#                     "description": "Redox Authentication Public Key",
-#                     "secret": {
-#                         "scope": "${var.secret_scope_name}",
-#                         "key": "public_key",
-#                         "permission": "READ"
-#                     }
-#                 },
-#                 {
-#                     "name": "redox_kid",
-#                     "description": "Redox Authentication KID",
-#                     "secret": {
-#                         "scope": "${var.secret_scope_name}",
-#                         "key": "kid",
-#                         "permission": "READ"
-#                     }
-#                 },
-#                 {
-#                     "name": "redox_private_key",
-#                     "description": "Redox Authentication Private Key",
-#                     "secret": {
-#                         "scope": "${var.secret_scope_name}",
-#                         "key": "private_key",
-#                         "permission": "READ"
-#                     }
-#                 },
-#                 {
-#                     "name": "redox_client_id",
-#                     "description": "Redox Authentication Client ID",
-#                     "secret": {
-#                         "scope": "${var.secret_scope_name}",
-#                         "key": "${var.client_id_dbs_key}",
-#                         "permission": "READ"
-#                     }
-#                 },
-#                 {
-#                     "name": "bin_volume",
-#                     "description": "Volume containing the Redox MCP Linux x86-64 binary",
-#                     "uc_securable": {
-#                         "securable_type": "VOLUME",
-#                         "securable_full_name": "${resources.volumes.source_bin.catalog_name}.${resources.volumes.source_bin.schema_name}.${resources.volumes.source_bin.name}",
-#                         "permission": "READ_VOLUME"
-#                     }
-#                 }
-#             ]
-#         )
-#     else:
-#         print("[PyDABs] ✗ Skipping app resource")
+        Loads the resource configuration from redox_oauth.secret_scope.yml 
+        in the same directory as this file.
+        
+        Args:
+            scope_yaml_path: Path to the secret scope YAML configuration file. 
+                           Defaults to redox_oauth.secret_scope.yml in the same 
+                           directory as this Python file.
+            
+        Returns:
+            True if scope was deployed, False if it already exists or deployment failed
+        """
+        scope_exists, _ = self._check_secret_scope_and_key()
+        
+        if scope_exists:
+            logger.info(
+                "Secret scope '%s' already exists. Skipping deployment.",
+                self.secret_scope_name
+            )
+            return False
+        
+        try:
+            yaml_path = self._get_yaml_path(scope_yaml_path, self.DEFAULT_SECRET_SCOPE_YAML)
+            scope_config = self._load_yaml_config(yaml_path)
+            
+            # Extract and add the secret scope resources to the bundle
+            if 'resources' not in scope_config:
+                raise ValueError("Invalid YAML structure: 'resources' section not found")
+            
+            if 'secret_scopes' not in scope_config['resources']:
+                raise ValueError("No 'secret_scopes' found in resources configuration")
+            
+            self.resources.secret_scopes = scope_config['resources']['secret_scopes']
+            logger.info(
+                "Secret scope '%s' added to deployment resources.",
+                self.secret_scope_name
+            )
+            return True
+            
+        except (FileNotFoundError, ValueError) as e:
+            logger.error("Error deploying secret scope: %s", e)
+            return False
+        except Exception as e:
+            logger.exception("Unexpected error deploying secret scope: %s", e)
+            return False
+
+    def deploy_app_if_ready(
+        self,
+        binary_filename: str,
+        app_yaml_path: Optional[str] = None,
+        volume_key: str = DEFAULT_VOLUME_KEY
+    ) -> bool:
+        """Deploy the Redox MCP serving app if all prerequisites are met.
+        
+        Deploys only if: secret scope exists, secret key exists, and binary 
+        file exists in volume.
+        
+        Args:
+            binary_filename: Name of the binary file to check for in the volume
+            app_yaml_path: Path to the app YAML configuration file.
+                          Defaults to redox_mcp_serving.app.yml in the same 
+                          directory as this Python file.
+            volume_key: The key of the volume resource in the bundle 
+                       (default: "source_bin")
+            
+        Returns:
+            True if app was deployed, False if prerequisites not met or 
+            deployment failed
+        """
+        # Check all three prerequisites
+        scope_exists, key_exists = self._check_secret_scope_and_key()
+        file_exists = self._check_file_in_volume(binary_filename, volume_key)
+        
+        # Log status of prerequisites
+        if not scope_exists:
+            logger.warning(
+                "Secret scope '%s' does not exist. Skipping app deployment.",
+                self.secret_scope_name
+            )
+            return False
+        
+        if not key_exists:
+            logger.warning(
+                "Secret key '%s' not found in scope '%s'. Skipping app deployment.",
+                self.client_id_dbs_key,
+                self.secret_scope_name
+            )
+            return False
+        
+        if not file_exists:
+            logger.warning(
+                "Binary file '%s' not found in volume '%s'. Skipping app deployment.",
+                binary_filename,
+                volume_key
+            )
+            return False
+        
+        # All prerequisites met, proceed with deployment
+        logger.info("All prerequisites met. Proceeding with app deployment.")
+        
+        try:
+            yaml_path = self._get_yaml_path(app_yaml_path, self.DEFAULT_APP_YAML)
+            app_config = self._load_yaml_config(yaml_path)
+            
+            # Extract and add the app resources to the bundle
+            if 'resources' not in app_config:
+                raise ValueError("Invalid YAML structure: 'resources' section not found")
+            
+            if 'apps' not in app_config['resources']:
+                raise ValueError("No 'apps' found in resources configuration")
+            
+            self.resources.apps = app_config['resources']['apps']
+            logger.info("Redox MCP serving app added to deployment resources.")
+            return True
+            
+        except (FileNotFoundError, ValueError) as e:
+            logger.error("Error deploying app: %s", e)
+            return False
+        except Exception as e:
+            logger.exception("Unexpected error deploying app: %s", e)
+            return False
     
-#     # Add more conditional resources here as needed
-#     # Example:
-#     # if target_config.get("deploy_pipeline", False):
-#     #     print("[PyDABs] ✓ Including pipeline resource")
-#     #     resources.pipelines["my_pipeline"] = Pipeline(...)
+    def get_resources(self) -> Resources:
+        """Return the configured resources.
+        
+        Returns:
+            Resources object containing all dynamically added resources
+        """
+        return self.resources
     
-#     return resources
+    # Private methods
+    
+    def _check_secret_scope_and_key(self) -> tuple[bool, bool]:
+        """Check if the secret scope exists and if the client ID key is present.
+        
+        Returns:
+            Tuple of (scope_exists, key_exists) where:
+                - scope_exists: True if the secret scope exists
+                - key_exists: True if the scope exists and contains the client ID key
+        """
+        scope_exists = False
+        key_exists = False
+        
+        try:
+            # Check if scope exists by listing all scopes
+            scopes = self.workspace_client.secrets.list_scopes()
+            scope_exists = any(scope.name == self.secret_scope_name for scope in scopes)
+            
+            if scope_exists:
+                # Check if the key exists in the scope
+                secrets = self.workspace_client.secrets.list_secrets(
+                    scope=self.secret_scope_name
+                )
+                key_exists = any(secret.key == self.client_id_dbs_key for secret in secrets)
+        
+        except (NotFound, ResourceDoesNotExist) as e:
+            logger.debug("Secret scope or key not found: %s", e)
+            return False, False
+        except Exception as e:
+            logger.error("Error checking secret scope: %s", e)
+            return False, False
+        
+        return scope_exists, key_exists
+
+    def _check_file_in_volume(
+        self,
+        filename: str,
+        volume_key: str = DEFAULT_VOLUME_KEY
+    ) -> bool:
+        """Check if a file exists in the deployed volume.
+        
+        Retrieves volume information from the bundle's resources dynamically.
+        
+        Args:
+            filename: Name of the file to check for in the volume
+            volume_key: The key of the volume resource in the bundle 
+                       (default: "source_bin")
+            
+        Returns:
+            True if the file exists, False otherwise
+        """
+        try:
+            # Get the volume resource from the bundle's resources
+            if not hasattr(self.bundle.resources, 'volumes'):
+                raise ValueError("No volumes found in bundle resources")
+            
+            if volume_key not in self.bundle.resources.volumes:
+                raise ValueError(
+                    f"Volume resource '{volume_key}' not found in bundle resources"
+                )
+            
+            source_bin_volume = self.bundle.resources.volumes[volume_key]
+            
+            # Extract catalog, schema, and volume name from the volume resource
+            catalog_name = source_bin_volume.catalog_name
+            schema_name = source_bin_volume.schema_name
+            volume_name = source_bin_volume.name
+            
+            # Construct the full volume path
+            volume_path = f"/Volumes/{catalog_name}/{schema_name}/{volume_name}/{filename}"
+            
+            # Check if the file exists using the workspace client
+            try:
+                self.workspace_client.files.get_status(volume_path)
+                logger.info("File found: %s", volume_path)
+                return True
+            except (NotFound, ResourceDoesNotExist):
+                logger.info("File not found: %s", volume_path)
+                return False
+                
+        except ValueError as e:
+            logger.error("Configuration error checking file in volume: %s", e)
+            return False
+        except Exception as e:
+            logger.error("Error checking file in volume: %s", e)
+            return False
+    
+    def _load_config(self) -> dict:
+        """Load external configuration from JSON file if provided.
+        
+        This is optional and not required for normal bundle operation.
+        
+        Returns:
+            Dictionary containing configuration, or empty dict if no config provided
+        """
+        if self.config_path is None:
+            logger.info("No config file provided. Using default configuration.")
+            return {}
+        
+        if not self.config_path.exists():
+            logger.warning(
+                "Configuration file not found: %s. Using default configuration.",
+                self.config_path
+            )
+            return {}
+        
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error("Invalid JSON in config file: %s", e)
+            return {}
+        except Exception as e:
+            logger.error("Error loading config file: %s. Using default configuration.", e)
+            return {}
+    
+    def _get_yaml_path(
+        self,
+        provided_path: Optional[str],
+        default_filename: str
+    ) -> Path:
+        """Get the YAML file path, using provided path or default.
+        
+        Args:
+            provided_path: Optional path provided by caller
+            default_filename: Default filename to use in resources directory
+            
+        Returns:
+            Path object for the YAML file
+        """
+        if provided_path is None:
+            return self._resources_dir / default_filename
+        return Path(provided_path)
+    
+    def _load_yaml_config(self, yaml_path: Path) -> dict:
+        """Load and parse a YAML configuration file.
+        
+        Args:
+            yaml_path: Path to the YAML file
+            
+        Returns:
+            Dictionary containing the parsed YAML content
+            
+        Raises:
+            FileNotFoundError: If the YAML file doesn't exist
+            ValueError: If the YAML content is invalid
+        """
+        if not yaml_path.exists():
+            raise FileNotFoundError(f"YAML file not found: {yaml_path}")
+        
+        try:
+            with open(yaml_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                
+            if not config:
+                raise ValueError(f"Empty or invalid YAML file: {yaml_path}")
+                
+            return config
+            
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML syntax in {yaml_path}: {e}") from e
