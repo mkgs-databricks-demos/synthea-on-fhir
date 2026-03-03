@@ -1,6 +1,10 @@
 # Python dependencies for Databricks Asset Bundles
 # Install with: pip install -r requirements.txt
 
+# Databricks CLI for bundle deployment
+# Pin to specific version to ensure consistent deployments
+databricks-cli>=0.219.0
+
 # Databricks Bundles SDK for Python-based resource definitions
 databricks-bundles>=0.275.0
 

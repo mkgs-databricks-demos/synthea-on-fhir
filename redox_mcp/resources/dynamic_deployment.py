@@ -57,10 +57,23 @@ class DynamicResources:
         self.run_as_user = self.bundle.resolve_variable(Variables.run_as_user)
         self.redox_binary_filename = self.bundle.resolve_variable(Variables.redox_binary_filename)
         
-        # Initialize workspace client with fallback authentication strategies
-        # Try profile-based auth (works in CLI context) before runtime auth
-        self.workspace_client = self._initialize_workspace_client()
+        # Lazy initialization - client is created only when first accessed
+        self._workspace_client: Optional[WorkspaceClient] = None
         self._resources_dir = Path(__file__).parent
+
+    @property
+    def workspace_client(self) -> WorkspaceClient:
+        """Get WorkspaceClient instance, initializing lazily on first access.
+        
+        Returns:
+            Configured WorkspaceClient instance
+            
+        Raises:
+            ValueError: If authentication fails
+        """
+        if self._workspace_client is None:
+            self._workspace_client = self._initialize_workspace_client()
+        return self._workspace_client
 
     def deploy_secret_scope_if_missing(
         self, 
@@ -242,8 +255,6 @@ class DynamicResources:
         try:
             # This uses ~/.databrickscfg DEFAULT profile
             client = WorkspaceClient()
-            # Test the connection
-            client.current_user.me()
             logger.info("Authenticated using default profile")
             return client
         except Exception as e:
@@ -255,7 +266,6 @@ class DynamicResources:
             token = os.getenv('DATABRICKS_TOKEN')
             if host and token:
                 client = WorkspaceClient(host=host, token=token)
-                client.current_user.me()
                 logger.info("Authenticated using environment variables")
                 return client
         except Exception as e:
@@ -266,7 +276,6 @@ class DynamicResources:
         try:
             config = Config()
             client = WorkspaceClient(config=config)
-            client.current_user.me()
             logger.info("Authenticated using runtime credentials")
             return client
         except Exception as e:
