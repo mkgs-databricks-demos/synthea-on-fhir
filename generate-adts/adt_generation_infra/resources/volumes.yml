@@ -1,0 +1,15 @@
+resources:
+  volumes:
+    landing:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: landing
+      volume_type: MANAGED
+      comment: "Landing volume for incoming data"
+    
+    extract:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: extract
+      volume_type: MANAGED
+      comment: "Extract volume for processed data"

@@ -73,3 +73,8 @@ targets:
       # This runs as matthew.giglia@databricks.com in production. We could also use a service principal here,
       # see https://docs.databricks.com/dev-tools/bundles/permissions.html.
       user_name: matthew.giglia@databricks.com
+    variables:
+      catalog_use: himss
+      schema: redox
+      volume_name: extract
+      user_name: matthew.giglia@databricks.com
