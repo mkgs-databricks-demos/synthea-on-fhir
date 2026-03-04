@@ -16,6 +16,7 @@ from zerobus.sdk.sync import ZerobusSdk
 from zerobus.sdk.shared import RecordType, StreamConfigurationOptions, TableProperties
 
 import fhir_bundle_pb2
+from google.protobuf import message as proto_message
 
 def fhir_bundle_to_proto(bundle_uuid: str,
                          fhir_payload: dict,
@@ -306,13 +307,23 @@ async def ingest_fhir_bundle(
     # Format timestamp for response (ISO 8601 with Z suffix)
     timestamp_str = event_timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
     
+    # Debug: Verify message type
+    logger.info(f"Message type: {type(msg)}, is Message: {isinstance(msg, proto_message.Message)}")
+    logger.info(f"Message has SerializeToString: {hasattr(msg, 'SerializeToString')}")
+    
     # Log record for debugging (excluding large payload)
     logger.info(f"Ingesting protobuf record - UUID: {bundle_uuid}, User: {user_email}, Timestamp: {timestamp_str}")
     
     # Ingest to Zerobus with error handling
     try:
         zerobus_stream = request.app.state.zerobus_stream
-        offset = zerobus_stream.ingest_record_offset(msg)  # SDK serializes the message
+        
+        # Try serializing the message ourselves as a workaround
+        serialized_msg = msg.SerializeToString()
+        logger.info(f"Serialized message size: {len(serialized_msg)} bytes")
+        
+        # Pass the Message object (SDK should handle serialization)
+        offset = zerobus_stream.ingest_record_offset(msg)
         
         logger.info(f"Successfully ingested bundle {bundle_uuid} for user {user_email} at offset {offset}")
         
