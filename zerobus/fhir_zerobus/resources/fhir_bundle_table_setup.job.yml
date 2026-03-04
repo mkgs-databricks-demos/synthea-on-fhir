@@ -17,8 +17,8 @@ resources:
           default: ${var.catalog}
         - name: schema_use
           default: ${var.schema}
-        - name: redox_spn
-          default: ${var.redox_service_principal}
+        - name: spn_application_id
+          default: ${var.zerobus_service_principal}
       
       tasks:
         - task_key: create_fhir_bundle_table
@@ -46,28 +46,4 @@ resources:
         resource_type: table
         table_name: fhir_bundle_zerobus
 
-# Target-specific configurations
-targets:
-  dev:
-    resources:
-      jobs:
-        fhir_bundle_table_setup:
-          name: "[DEV] FHIR Bundle Table Setup"
-  
-  himss2026:
-    resources:
-      jobs:
-        fhir_bundle_table_setup:
-          name: "[HIMSS2026] FHIR Bundle Table Setup"
-  
-  prod:
-    resources:
-      jobs:
-        fhir_bundle_table_setup:
-          name: "[PROD] FHIR Bundle Table Setup"
-  
-  free_edition:
-    resources:
-      jobs:
-        fhir_bundle_table_setup:
-          name: "[FREE] FHIR Bundle Table Setup"
+

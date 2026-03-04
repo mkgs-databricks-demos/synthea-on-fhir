@@ -15,5 +15,5 @@ FHIR_BUNDLE_TABLE_NAME = os.getenv(
     "himss.redox.fhir_bundle_zerobus",
 )
 
-CLIENT_ID = os.getenv("DATABRICKS_CLIENT_ID")
-CLIENT_SECRET = os.getenv("DATABRICKS_CLIENT_SECRET")
+CLIENT_ID = os.getenv("ZEROBUS_CLIENT_ID")
+CLIENT_SECRET = os.getenv("ZEROBUS_CLIENT_SECRET")

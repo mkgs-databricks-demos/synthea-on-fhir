@@ -5,8 +5,10 @@ bundle:
   uuid: 46a9d417-3ce9-479a-b090-1b48b0b87184
 
 include:
-  - resources/*.yml
-  - resources/*/*.yml
+  - resources/*.secret_scope.yml
+  - resources/*.job.yml
+  - resources/*.app.yml
+  # - resources/*/*.yml
 
 # Variable declarations. These variables are assigned in the dev/prod targets below.
 variables:
@@ -16,7 +18,7 @@ variables:
     description: The schema to use
   secret_scope_name: 
     description: The secret scope name to use 
-    default: redox_oauth_keys
+    default: fhir_zerobus_credentials
   client_id_dbs_key:
     description: The name of the key for the client id 
     default: client_id
@@ -25,9 +27,9 @@ variables:
   higher_level_service_principal:
     description: The service principal name (application ID) for higher level deployments.  Comment this out if you are not using a service_principal for deployments above the dev target.
     default: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
-  redox_service_principal:
-    description: The service principal name (application ID) for Redox direct connections.  
-    default: aeeac6a0-727a-4372-9253-f167c09a06e1
+  zerobus_service_principal:
+    description: The service principal name (application ID) for zerobus ingestion.  
+    default: a859e710-43f8-4f33-b946-121fb91cd9ec
   serverless_environment_version:
     description: The serverless environment for which to run the workflows, notebook tasks, etc. 
     default: 4
@@ -35,7 +37,7 @@ variables:
     description: Set to true if the dashboard should use the owner's credentials, or false if the user's credentials should be used to run the dashboard and access Unity Catalog assets.  
     default: false
   tags_project: 
-    default: Open Epic Smart on FHIR
+    default: Redox Zerobus
     description: Project tag to use for deployed resources.  
   tags_businessUnit:
     default: Healthcare and Life Sciences
@@ -47,7 +49,7 @@ variables:
     default: Healthcare Providers and Health Plans
     description: Tag for the primary business unit stakeholder(s).  
   tags_RemoveAfter:
-    default: 2027-02-25
+    default: 2027-03-04
     description: Required Databricks demo environment tag for long lived demos.  Can not be set more than one year after the deployment date. 
 
 
@@ -154,7 +156,7 @@ targets:
       schema: redox
       higher_level_service_principal: aa7772ac-75bc-4f18-8dee-d58e50a11cd0
       run_as_user: ${var.higher_level_service_principal}
-      redox_service_principal: aeeac6a0-727a-4372-9253-f167c09a06e1
+      redox_service_principal: a859e710-43f8-4f33-b946-121fb91cd9ec
     permissions:
       - user_name: matthew.giglia@databricks.com
         level: CAN_MANAGE
