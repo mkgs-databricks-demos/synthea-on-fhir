@@ -2,5 +2,6 @@ fastapi
 uvicorn
 httpx  # New: async HTTP client
 pydantic
+protobuf>=6.31.1  # Required for fhir_bundle_pb2.py compatibility
 databricks-zerobus-ingest-sdk
 databricks-sdk
