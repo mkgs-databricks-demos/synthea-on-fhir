@@ -1,0 +1,158 @@
+# This is a Databricks asset bundle definition for fhir_zerobus.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+bundle:
+  name: fhir_zerobus
+  uuid: 46a9d417-3ce9-479a-b090-1b48b0b87184
+
+include:
+  - resources/*.yml
+  - resources/*/*.yml
+
+# Variable declarations. These variables are assigned in the dev/prod targets below.
+variables:
+  catalog:
+    description: The catalog to use
+  schema:
+    description: The schema to use
+  secret_scope_name: 
+    description: The secret scope name to use 
+    default: redox_oauth_keys
+  client_id_dbs_key:
+    description: The name of the key for the client id 
+    default: client_id
+  run_as_user:
+    description: The User that the workflows should run as.
+  higher_level_service_principal:
+    description: The service principal name (application ID) for higher level deployments.  Comment this out if you are not using a service_principal for deployments above the dev target.
+    default: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
+  serverless_environment_version:
+    description: The serverless environment for which to run the workflows, notebook tasks, etc. 
+    default: 4
+  dashboard_embed_credentials:
+    description: Set to true if the dashboard should use the owner's credentials, or false if the user's credentials should be used to run the dashboard and access Unity Catalog assets.  
+    default: false
+  tags_project: 
+    default: Open Epic Smart on FHIR
+    description: Project tag to use for deployed resources.  
+  tags_businessUnit:
+    default: Healthcare and Life Sciences
+    description: Business Unit tag to use for deployed resource cost and ROI allocation. 
+  tags_developer:
+    default: matthew.giglia@databricks.com
+    description: Primary developer for Ops contact. 
+  tags_requestedBy:
+    default: Healthcare Providers and Health Plans
+    description: Tag for the primary business unit stakeholder(s).  
+  tags_RemoveAfter:
+    default: 2027-02-25
+    description: Required Databricks demo environment tag for long lived demos.  Can not be set more than one year after the deployment date. 
+
+
+targets:
+  dev:
+    mode: development
+    default: true
+    presets:
+      source_linked_deployment: false
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+    workspace:
+      host: https://fe-vm-mkgs-databricks-demos.cloud.databricks.com
+      root_path: /Workspace/Users/${var.run_as_user}/.bundle/${bundle.name}/${bundle.target}
+    # resources:
+    #   secret_scopes:
+    #     redox_secret_scope:
+    #       name: ${var.secret_scope_name}
+    #       permissions:
+    #       - user_name: ${var.run_as_user}
+    #         level: MANAGE
+    #       lifecycle:
+    #         prevent_destroy: true
+    variables:
+      catalog: mkgs_dev
+      schema: redox
+      run_as_user: matthew.giglia@databricks.com
+
+
+  free_edition:
+    mode: production
+    presets:
+      source_linked_deployment: false
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+    workspace:
+      host: https://dbc-e5684c0a-20fa.cloud.databricks.com/
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: mkgs
+      schema: redox
+      higher_level_service_principal: 0ab13318-f064-41b4-a49a-0fd18ceb2d0f
+      run_as_user: ${var.higher_level_service_principal}
+    permissions:
+      - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
+
+
+  # The 'prod' target, used for production deployment.
+  prod:
+    mode: production
+    presets:
+      source_linked_deployment: false
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+    workspace:
+      host: https://fe-vm-mkgs-databricks-demos.cloud.databricks.com
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    # run_as:
+    #   user_name: ${var.run_as_user}
+    variables:
+      catalog: mkgs
+      schema: redox
+      higher_level_service_principal: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
+      run_as_user: ${var.higher_level_service_principal}
+    permissions:
+      - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
+
+  # The 'prod' target, used for production deployment.
+  himss2026:
+    mode: production
+    presets:
+      source_linked_deployment: false
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+    workspace:
+      host: https://fe-sandbox-himss2026.cloud.databricks.com
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    # run_as:
+    #   user_name: ${var.run_as_user}
+    variables:
+      catalog: himss
+      schema: redox
+      higher_level_service_principal: aa7772ac-75bc-4f18-8dee-d58e50a11cd0
+      run_as_user: ${var.higher_level_service_principal}
+    permissions:
+      - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
+      - group_name: users
+        level: CAN_RUN
