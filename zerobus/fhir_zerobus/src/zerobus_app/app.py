@@ -266,9 +266,10 @@ async def ingest_fhir_bundle(
     user_email = user_info.get("userName", "unknown")
     
     # Shape the record to match the table schema
+    # Note: Convert payload to JSON string for VARIANT column
     record = {
         "bundle_uuid": bundle_uuid,
-        "fhir": payload,
+        "fhir": json.dumps(payload),  # Serialize to JSON string for Zerobus
         "source_system": app.title,
         "event_timestamp": timestamp,
         "user_email": user_email,
