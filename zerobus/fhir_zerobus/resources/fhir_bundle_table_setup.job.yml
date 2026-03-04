@@ -23,7 +23,7 @@ resources:
       tasks:
         - task_key: create_fhir_bundle_table
           notebook_task:
-            notebook_path: ../src/uc_setup/target-table-ddl
+            notebook_path: ../src/uc_setup/target-table-ddl.ipynb
             source: WORKSPACE
           
           # Use environment for serverless SQL execution

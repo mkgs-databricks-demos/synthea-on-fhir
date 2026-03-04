@@ -156,7 +156,7 @@ targets:
       schema: redox
       higher_level_service_principal: aa7772ac-75bc-4f18-8dee-d58e50a11cd0
       run_as_user: ${var.higher_level_service_principal}
-      redox_service_principal: a859e710-43f8-4f33-b946-121fb91cd9ec
+      zerobus_service_principal: a859e710-43f8-4f33-b946-121fb91cd9ec
     permissions:
       - user_name: matthew.giglia@databricks.com
         level: CAN_MANAGE
