@@ -20,9 +20,6 @@ resources:
         - name: spn_application_id
           default: ${var.zerobus_service_principal}
       
-      run_as:
-        user_name: ${var.run_as_user}
-      
       tasks:
         - task_key: create_fhir_bundle_table
           notebook_task:
