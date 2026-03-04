@@ -20,20 +20,20 @@ resources:
       timeout_seconds: 7200  # 2 hours
       max_concurrent_runs: 1
       
-      # Serverless environment configuration
-      environments:
-        - environment_key: "serverless_env_v4"
-          spec:
-            environment_version: "4"
-            dependencies:
-              - "faker"  # Dependencies installed in the environment
+      # # Serverless environment configuration
+      # environments:
+      #   - environment_key: "serverless_env_v4"
+      #     spec:
+      #       environment_version: "4"
+      #       dependencies:
+      #         - "faker"  # Dependencies installed in the environment
       
       tasks:
         - task_key: generate_hl7_adt_messages
           description: "Generate synthetic HL7 ADT messages with Phase 1 & 2 enhancements"
           
-          # Use serverless environment (version 4)
-          environment_key: "serverless_env_v4"
+          # # Use serverless environment (version 4)
+          # environment_key: "serverless_env_v4"
           
           notebook_task:
             notebook_path: ../src/adt-generators.ipynb
