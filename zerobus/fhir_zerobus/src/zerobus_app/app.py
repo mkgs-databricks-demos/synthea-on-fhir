@@ -84,8 +84,9 @@ async def lifespan(app: FastAPI):
         # Create SDK client
         zerobus_sdk = ZerobusSdk(ZEROBUS_SERVER_ENDPOINT, WORKSPACE_URL)
         
-        descriptor_bytes = fhir_bundle_pb2.FhirBundle.DESCRIPTOR.file.serialized_pb
-        table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME, descriptor_bytes)
+        # Pass the file descriptor object, not serialized bytes
+        file_descriptor = fhir_bundle_pb2.DESCRIPTOR
+        table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME, file_descriptor)
         options = StreamConfigurationOptions(
             record_type=RecordType.PROTO,
             max_inflight_records=10_000,
