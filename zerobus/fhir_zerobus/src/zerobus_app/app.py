@@ -17,7 +17,6 @@ from zerobus.sdk.shared import RecordType, StreamConfigurationOptions, TableProp
 
 import fhir_bundle_pb2
 from google.protobuf import message as proto_message
-from google.protobuf import descriptor_pb2
 
 def fhir_bundle_to_proto(bundle_uuid: str,
                          fhir_payload: dict,
@@ -85,11 +84,9 @@ async def lifespan(app: FastAPI):
         # Create SDK client
         zerobus_sdk = ZerobusSdk(ZEROBUS_SERVER_ENDPOINT, WORKSPACE_URL)
         
-        # Create FileDescriptorProto from the serialized bytes
-        file_desc_proto = descriptor_pb2.FileDescriptorProto()
-        file_desc_proto.ParseFromString(fhir_bundle_pb2.FhirBundle.DESCRIPTOR.file.serialized_pb)
-        
-        table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME, file_desc_proto)
+        # Pass the raw serialized FileDescriptor bytes
+        descriptor_bytes = fhir_bundle_pb2.FhirBundle.DESCRIPTOR.file.serialized_pb
+        table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME, descriptor_bytes)
         options = StreamConfigurationOptions(
             record_type=RecordType.PROTO,
             max_inflight_records=10_000,
