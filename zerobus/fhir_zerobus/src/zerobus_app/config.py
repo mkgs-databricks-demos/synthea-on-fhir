@@ -11,7 +11,7 @@ WORKSPACE_URL = os.getenv(
     "https://fe-sandbox-himss2026.cloud.databricks.com/",
 )
 FHIR_BUNDLE_TABLE_NAME = os.getenv(
-    "TABLE_NAME",
+    "FHIR_BUNDLE_TABLE_NAME",
     "himss.redox.fhir_bundle_zerobus",
 )
 

@@ -38,6 +38,12 @@ resources:
             scope: ${var.secret_scope_name}
             key: workspace_url
             permission: "READ"
+        - name: fhir_bundle_table_name
+          description: "Target Table Name for the FHIR Bundle Ingestion"
+          secret: 
+            scope: ${var.secret_scope_name}
+            key: fhir_bundle_table_name
+            permission: "READ"
       
       # App permissions - who can use/manage the app
       permissions:

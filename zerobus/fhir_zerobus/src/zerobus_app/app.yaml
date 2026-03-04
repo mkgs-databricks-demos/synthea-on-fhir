@@ -1,0 +1,23 @@
+command: [
+  "uvicorn"
+  ,"redox_http_proxy:app"
+  ,"--host"
+  ,"0.0.0.0"
+  ,"--port"
+  ,"8000"
+  ,"--log-level"
+  ,"debug"
+]
+env: 
+
+  - name: ZEROBUS_SERVER_ENDPOINT
+    value: zerobus_endpoint
+
+  - name: WORKSPACE_URL
+    valueFrom: workspace_url
+
+  - name: FHIR_BUNDLE_TABLE_NAME
+    valueFrom: fhir_bundle_table_name
+
+  - name: ZEROBUS_CLIENT_ID
+    valueFrom: zerobus_client_id
