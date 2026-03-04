@@ -15,6 +15,29 @@ from pydantic import BaseModel, Field
 from zerobus.sdk.sync import ZerobusSdk
 from zerobus.sdk.shared import RecordType, StreamConfigurationOptions, TableProperties
 
+import fhir_bundle_pb2
+
+def fhir_bundle_to_proto(bundle_uuid: str,
+                         fhir_payload: dict,
+                         source_system: str,
+                         event_ts: datetime,
+                         user_email: str) -> fhir_bundle_pb2.FhirBundle:
+    # VARIANT → JSON-encoded string
+    fhir_json = json.dumps(fhir_payload, separators=(",", ":"))
+
+    # TIMESTAMP → epoch micros (UTC)
+    if event_ts.tzinfo is None:
+        event_ts = event_ts.replace(tzinfo=timezone.utc)
+    epoch_micros = int(event_ts.timestamp() * 1_000_000)
+
+    return fhir_bundle_pb2.FhirBundle(
+        bundle_uuid=bundle_uuid,
+        fhir=fhir_json,
+        source_system=source_system,
+        event_timestamp=epoch_micros,
+        user_email=user_email,
+    )
+
 from config import (
     ZEROBUS_SERVER_ENDPOINT,
     WORKSPACE_URL,
@@ -60,10 +83,15 @@ async def lifespan(app: FastAPI):
         # Create SDK client
         zerobus_sdk = ZerobusSdk(ZEROBUS_SERVER_ENDPOINT, WORKSPACE_URL)
         
-        table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME)
-        options = StreamConfigurationOptions(record_type=RecordType.JSON)
+        descriptor_bytes = fhir_bundle_pb2.FhirBundle.DESCRIPTOR.file.serialized_pb
+        table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME, descriptor_bytes)
+        options = StreamConfigurationOptions(
+            record_type=RecordType.PROTO,
+            max_inflight_records=10_000,
+            recovery=True,
+        )
         
-        # Open a long-lived JSON stream for this table
+        # Open a long-lived protobuf stream for this table
         zerobus_stream = zerobus_sdk.create_stream(
             CLIENT_ID,
             CLIENT_SECRET,
@@ -261,36 +289,32 @@ async def ingest_fhir_bundle(
             detail=f"Invalid JSON payload: {str(e)}",
         )
     
-    # Generate unique bundle ID
+    # Generate unique bundle ID and metadata
     bundle_uuid = str(uuid.uuid4())
-    # Use RFC3339 format with 'Z' suffix (more compatible with Spark/Databricks)
-    # Remove microseconds to avoid parsing issues: 2024-03-04T18:12:09Z
-    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     user_email = user_info.get("userName", "unknown")
+    event_timestamp = datetime.now(timezone.utc)
     
-    # Shape the record to match the table schema
-    # CRITICAL: For VARIANT columns, Zerobus expects a JSON string (not a dict)
-    # Use ensure_ascii=True to escape unicode chars and separators for compact JSON
-   #  fhir_json_string = json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
+    # Convert to protobuf message
+    msg = fhir_bundle_to_proto(
+        bundle_uuid=bundle_uuid,
+        fhir_payload=payload,
+        source_system="FHIR to Zerobus Ingest App",
+        event_ts=event_timestamp,
+        user_email=user_email
+    )
     
-    record = {
-        "bundle_uuid": bundle_uuid,
-        "fhir": payload,  # VARIANT column: JSON as string
-        "source_system": "FHIR to Zerobus Ingest App",
-        "event_timestamp": timestamp,
-        "user_email": user_email,
-    }
+    # Format timestamp for response (ISO 8601 with Z suffix)
+    timestamp_str = event_timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     # Log record for debugging (excluding large payload)
-    logger.info(f"Ingesting record - UUID: {bundle_uuid}, User: {user_email}, Timestamp: {timestamp}")
+    logger.info(f"Ingesting protobuf record - UUID: {bundle_uuid}, User: {user_email}, Timestamp: {timestamp_str}")
     
     # Ingest to Zerobus with error handling
     try:
         zerobus_stream = request.app.state.zerobus_stream
-        ack = zerobus_stream.ingest_record(record)
-        ack.wait_for_ack()  # Wait for acknowledgment
+        offset = zerobus_stream.ingest_record_offset(msg)  # SDK serializes the message
         
-        logger.info(f"Successfully ingested bundle {bundle_uuid} for user {user_email}")
+        logger.info(f"Successfully ingested bundle {bundle_uuid} for user {user_email} at offset {offset}")
         
     except Exception as e:
         logger.error(f"Failed to write to Zerobus: {e}", exc_info=True)
@@ -304,5 +328,5 @@ async def ingest_fhir_bundle(
         status="ok",
         bundle_uuid=bundle_uuid,
         user=user_email,
-        timestamp=timestamp,
+        timestamp=timestamp_str,
     )

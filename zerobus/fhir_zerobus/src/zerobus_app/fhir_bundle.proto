@@ -1,0 +1,19 @@
+// fhir_bundle.proto
+syntax = "proto3";
+
+message FhirBundle {
+  // STRING
+  string bundle_uuid = 1;
+
+  // VARIANT -> JSON-encoded string (object / array / primitive)
+  string fhir = 2;
+
+  // STRING
+  string source_system = 3;
+
+  // TIMESTAMP -> epoch micros
+  int64 event_timestamp = 4;
+
+  // STRING
+  string user_email = 5;
+}
