@@ -1,0 +1,70 @@
+# Databricks App resource configuration for FHIR Bundle Zerobus Ingest Application
+# This app receives FHIR bundles via POST requests and streams them to Unity Catalog via Zerobus
+
+resources:
+  apps:
+    fhir_bundle_ingest_app:
+      name: fhir-bundle-ingest-app
+      description: >
+        FastAPI application that ingests FHIR bundles via REST API and 
+        streams them to Unity Catalog table ${var.catalog}.${var.schema}.fhir_bundle_zerobus 
+        using Databricks Zerobus SDK
+      
+      # Source code location relative to bundle root
+      source_code_path: ./src/zerobus_app
+      
+      # App permissions - who can use/manage the app
+      permissions:
+        - user_name: matthew.giglia@databricks.com
+          level: CAN_MANAGE
+        - group_name: users
+          level: CAN_USE
+
+# Target-specific app configurations
+targets:
+  dev:
+    resources:
+      apps:
+        fhir_bundle_ingest_app:
+          name: fhir-bundle-ingest-app-dev
+          description: >
+            [DEV] FHIR Bundle Zerobus Ingest App - 
+            Target table: ${var.catalog}.${var.schema}.fhir_bundle_zerobus
+  
+  himss2026:
+    resources:
+      apps:
+        fhir_bundle_ingest_app:
+          name: fhir-bundle-ingest-app-himss2026
+          description: >
+            [HIMSS2026] FHIR Bundle Zerobus Ingest App - 
+            Target table: ${var.catalog}.${var.schema}.fhir_bundle_zerobus
+          permissions:
+            - user_name: matthew.giglia@databricks.com
+              level: CAN_MANAGE
+            - group_name: users
+              level: CAN_USE
+  
+  prod:
+    resources:
+      apps:
+        fhir_bundle_ingest_app:
+          name: fhir-bundle-ingest-app-prod
+          description: >
+            [PROD] FHIR Bundle Zerobus Ingest App - 
+            Target table: ${var.catalog}.${var.schema}.fhir_bundle_zerobus
+          permissions:
+            - user_name: matthew.giglia@databricks.com
+              level: CAN_MANAGE
+  
+  free_edition:
+    resources:
+      apps:
+        fhir_bundle_ingest_app:
+          name: fhir-bundle-ingest-app-free
+          description: >
+            [FREE] FHIR Bundle Zerobus Ingest App - 
+            Target table: ${var.catalog}.${var.schema}.fhir_bundle_zerobus
+          permissions:
+            - user_name: matthew.giglia@databricks.com
+              level: CAN_MANAGE
