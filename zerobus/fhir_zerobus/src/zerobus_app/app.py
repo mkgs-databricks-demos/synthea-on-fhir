@@ -269,9 +269,13 @@ async def ingest_fhir_bundle(
     user_email = user_info.get("userName", "unknown")
     
     # Shape the record to match the table schema
+    # CRITICAL: For VARIANT columns, Zerobus expects a JSON string (not a dict)
+    # Use ensure_ascii=False and separators for clean, compact JSON
+    fhir_json_string = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+    
     record = {
         "bundle_uuid": bundle_uuid,
-        "fhir": json.dumps(payload),  # VARIANT column expects JSON string
+        "fhir": fhir_json_string,  # VARIANT column: JSON as string
         "source_system": app.title,
         "event_timestamp": timestamp,
         "user_email": user_email,
