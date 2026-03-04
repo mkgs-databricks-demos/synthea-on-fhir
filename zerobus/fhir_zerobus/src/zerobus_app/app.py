@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
         app.state.zerobus_sdk = None
         app.state.zerobus_stream = None
     
-    # Create async HTTP client for token validation (connection pooling)
+    # Create async HTTP client for optional additional validation (connection pooling)
     app.state.http_client = httpx.AsyncClient(timeout=10.0)
     
     yield  # Application runs here
@@ -122,78 +122,55 @@ app.add_middleware(
 )
 
 
-# Dependency: Authentication middleware for external API calls
-async def verify_databricks_token(
-    request: Request,
-    authorization: Optional[str] = Header(None),
-) -> dict:
+# Dependency: Authentication middleware for Databricks Apps
+async def verify_databricks_auth(request: Request) -> dict:
     """
-    Validates Databricks workspace token by calling the Databricks SCIM API.
-    Uses async HTTP client with connection pooling for better performance.
+    Validates Databricks authentication from headers forwarded by Databricks Apps Gateway.
+    
+    Databricks Apps Gateway validates Bearer tokens at the edge and forwards user identity
+    via special headers instead of the original Authorization header:
+    - x-forwarded-user: The authenticated user's identity (email)
+    - x-forwarded-access-token: The user's access token (optional, for user authorization)
+    
+    This function trusts the gateway's validation and extracts user information from
+    the forwarded headers. The gateway ensures only authenticated requests reach this app.
     
     Args:
-        request: FastAPI request object (for accessing app state)
-        authorization: Authorization header with Bearer token
+        request: FastAPI request object containing forwarded headers
         
     Returns:
-        dict: User information from SCIM API
+        dict: User information containing userName and optional access token
         
     Raises:
-        HTTPException: If token is missing, invalid, or expired
+        HTTPException: If required headers are missing (app not accessed via Databricks Apps)
+        
+    References:
+        - https://docs.databricks.com/dev-tools/databricks-apps/auth/
+        - https://docs.databricks.com/dev-tools/databricks-apps/http-headers/
     """
-    if not authorization:
-        logger.warning("Request received without Authorization header")
+    # Extract forwarded authentication headers
+    user = request.headers.get("x-forwarded-user")
+    access_token = request.headers.get("x-forwarded-access-token")
+    
+    # Validate that we have at least user identity
+    if not user:
+        logger.warning("Request received without x-forwarded-user header")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header missing. Include 'Authorization: Bearer <token>' header.",
+            detail=(
+                "Authentication required. This app must be accessed via Databricks Apps. "
+                "The gateway validates Bearer tokens and forwards user identity via headers."
+            ),
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    if not authorization.startswith("Bearer "):
-        logger.warning(f"Invalid authorization format: {authorization[:20]}...")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization format. Use 'Bearer <token>'.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    logger.info(f"Successfully authenticated user from forwarded headers: {user}")
     
-    token = authorization.replace("Bearer ", "")
-    
-    # Verify token by calling Databricks SCIM API (async with connection pooling)
-    try:
-        http_client: httpx.AsyncClient = request.app.state.http_client
-        
-        response = await http_client.get(
-            f"{WORKSPACE_URL}/api/2.0/preview/scim/v2/Me",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        
-        if response.status_code != 200:
-            logger.warning(f"Token validation failed with status {response.status_code}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token. Please provide a valid Databricks workspace token.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        user_info = response.json()
-        logger.info(f"Successfully authenticated user: {user_info.get('userName', 'unknown')}")
-        return user_info
-        
-    except httpx.RequestError as e:
-        logger.error(f"Token validation request error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Token validation service unavailable: {str(e)}",
-        )
-    except HTTPException:
-        raise  # Re-raise HTTPExceptions
-    except Exception as e:
-        logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal error during authentication",
-        )
+    # Return user info in compatible format
+    return {
+        "userName": user,
+        "accessToken": access_token,  # Optional: may be None
+    }
 
 
 # Health check endpoint (best practice for monitoring)
@@ -242,16 +219,22 @@ async def root():
 )
 async def ingest_fhir_bundle(
     request: Request,
-    user_info: dict = Depends(verify_databricks_token),
+    user_info: dict = Depends(verify_databricks_auth),
 ):
     """
     Accepts arbitrary JSON (e.g., a FHIR Bundle) and writes it
     into the `fhir` VARIANT column via Zerobus streaming ingestion.
     
-    Requires valid Databricks workspace authentication via Bearer token.
+    Requires authentication via Databricks Apps Gateway.
     
     **Authentication:**
+    - Access this endpoint via Databricks Apps with Bearer token
+    - Gateway validates token and forwards user identity to this app
     - Include header: `Authorization: Bearer <your_databricks_token>`
+    
+    **For Programmatic Access:**
+    - Use service principal with OAuth M2M credentials
+    - See: https://docs.databricks.com/dev-tools/databricks-apps/connect-local/
     
     **Rate Limits:**
     - Recommended: < 1000 requests/minute per user
