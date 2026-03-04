@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(
-    title="FHIR → Zerobus Ingest App",
+    title="FHIR to Zerobus Ingest App",  # Use ASCII only - avoid unicode chars that break JSON parsing
     description="FastAPI application for ingesting FHIR bundles to Unity Catalog via Databricks Zerobus",
     version="1.0.0",
     lifespan=lifespan,
@@ -270,8 +270,8 @@ async def ingest_fhir_bundle(
     
     # Shape the record to match the table schema
     # CRITICAL: For VARIANT columns, Zerobus expects a JSON string (not a dict)
-    # Use ensure_ascii=False and separators for clean, compact JSON
-    fhir_json_string = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+    # Use ensure_ascii=True to escape unicode chars and separators for compact JSON
+    fhir_json_string = json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
     
     record = {
         "bundle_uuid": bundle_uuid,
