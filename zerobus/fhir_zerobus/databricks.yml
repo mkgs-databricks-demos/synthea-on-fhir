@@ -25,6 +25,9 @@ variables:
   higher_level_service_principal:
     description: The service principal name (application ID) for higher level deployments.  Comment this out if you are not using a service_principal for deployments above the dev target.
     default: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
+  redox_service_principal:
+    description: The service principal name (application ID) for Redox direct connections.  
+    default: aeeac6a0-727a-4372-9253-f167c09a06e1
   serverless_environment_version:
     description: The serverless environment for which to run the workflows, notebook tasks, etc. 
     default: 4
@@ -151,6 +154,7 @@ targets:
       schema: redox
       higher_level_service_principal: aa7772ac-75bc-4f18-8dee-d58e50a11cd0
       run_as_user: ${var.higher_level_service_principal}
+      redox_service_principal: aeeac6a0-727a-4372-9253-f167c09a06e1
     permissions:
       - user_name: matthew.giglia@databricks.com
         level: CAN_MANAGE
