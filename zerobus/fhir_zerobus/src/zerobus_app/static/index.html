@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FHIR to Zerobus Ingest App</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #FF3621 0%, #E8330E 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(255, 54, 33, 0.2);
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.95;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            border: 1px solid #e1e4e8;
+        }
+        
+        .card h2 {
+            color: #2c3e50;
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .status-item {
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e1e4e8;
+            background: #f8f9fa;
+        }
+        
+        .status-item h3 {
+            font-size: 0.9rem;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+        
+        .status-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-healthy {
+            color: #00A972;
+        }
+        
+        .status-error {
+            color: #E8330E;
+        }
+        
+        .status-loading {
+            color: #6c757d;
+        }
+        
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            margin: 15px 0;
+        }
+        
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e1e4e8;
+        }
+        
+        .code-title {
+            font-size: 0.85rem;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .copy-button {
+            background: #1473E6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        
+        .copy-button:hover {
+            background: #0D66D0;
+            transform: translateY(-1px);
+        }
+        
+        .refresh-button {
+            background: #00A972;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            margin-top: 20px;
+        }
+        
+        .refresh-button:hover {
+            background: #008C5E;
+            transform: translateY(-1px);
+        }
+        
+        .refresh-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .info-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #1473E6;
+            border-radius: 4px;
+        }
+        
+        .info-section h3 {
+            color: #1473E6;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+        
+        .info-section p {
+            color: #495057;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+        
+        .info-section ul {
+            margin-left: 20px;
+            color: #495057;
+            line-height: 1.8;
+        }
+        
+        .highlight {
+            color: #FF3621;
+            font-weight: 600;
+        }
+        
+        .endpoint-url {
+            color: #1473E6;
+            word-break: break-all;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .loading {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        function App() {
+            const [health, setHealth] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [lastChecked, setLastChecked] = useState(null);
+            const fetchHealth = async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                    const response = await fetch('/health');
+                    if (!response.ok) throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
+                    const data = await response.json();
+                    setHealth(data);
+                    setLastChecked(new Date());
+                } catch (err) {
+                    setError(err.message);
+                    setHealth(null);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            useEffect(() => {
+                fetchHealth();
+                const interval = setInterval(fetchHealth, 30000);
+                return () => clearInterval(interval);
+            }, []);
+            const copyToClipboard = (text) => {
+                navigator.clipboard.writeText(text);
+            };
+            const curlExample = \`curl -X POST "\${window.location.origin}/api/v1/ingest/fhir-bundle" \\\\
+  -H "Authorization: Bearer YOUR_DATABRICKS_TOKEN" \\\\
+  -H "Content-Type: application/json" \\\\
+  -d '{
+    "resourceType": "Bundle",
+    "type": "transaction",
+    "entry": [{
+      "resource": {
+        "resourceType": "Patient",
+        "id": "example",
+        "name": [{"family": "Doe", "given": ["John"]}]
+      }
+    }]
+  }'\`;
+            const pythonExample = \`import requests
+import json
+
+token = "YOUR_DATABRICKS_TOKEN"
+
+bundle = {
+    "resourceType": "Bundle",
+    "type": "transaction",
+    "entry": [{
+        "resource": {
+            "resourceType": "Patient",
+            "id": "example",
+            "name": [{"family": "Doe", "given": ["John"]}]
+        }
+    }]
+}
+
+response = requests.post(
+    "\${window.location.origin}/api/v1/ingest/fhir-bundle",
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    json=bundle
+)
+
+print(f"Status: {response.status_code}")
+print(f"Response: {response.json()}")\`;
+            return (
+                <div className="container">
+                    <div className="header">
+                        <h1>🏥 FHIR to Zerobus Ingest</h1>
+                        <p>Real-time streaming ingestion of HL7 FHIR Bundles to Unity Catalog</p>
+                    </div>
+                    <div className="card">
+                        <h2><span>📊</span> System Status</h2>
+                        <div className="status-grid">
+                            <div className="status-item">
+                                <h3>Application</h3>
+                                <div className={\`status-value \${loading ? 'loading' : health ? 'status-healthy' : 'status-error'}\`}>
+                                    {loading ? '⏳ Checking...' : health ? '✓ Healthy' : '✗ Unavailable'}
+                                </div>
+                            </div>
+                            <div className="status-item">
+                                <h3>Zerobus Stream</h3>
+                                <div className={\`status-value \${loading ? 'loading' : health?.zerobus_stream === 'healthy' ? 'status-healthy' : 'status-error'}\`}>
+                                    {loading ? '⏳ Checking...' : health?.zerobus_stream === 'healthy' ? '✓ Connected' : '✗ Disconnected'}
+                                </div>
+                            </div>
+                            <div className="status-item">
+                                <h3>Last Checked</h3>
+                                <div className="status-value status-loading">
+                                    {lastChecked ? lastChecked.toLocaleTimeString() : 'N/A'}
+                                </div>
+                            </div>
+                        </div>
+                        {error && (
+                            <div style={{marginTop: '20px', padding: '15px', background: '#FFE8E5', borderRadius: '8px', color: '#E8330E'}}>
+                                <strong>Error:</strong> {error}
+                            </div>
+                        )}
+                        <button className="refresh-button" onClick={fetchHealth} disabled={loading}>
+                            {loading ? '⏳ Checking...' : '🔄 Refresh Status'}
+                        </button>
+                    </div>
+                    <div className="card">
+                        <h2><span>ℹ️</span> About This Application</h2>
+                        <div className="info-section">
+                            <h3>What does this app do?</h3>
+                            <p>This FastAPI application provides a streaming ingestion endpoint for HL7 FHIR Bundles. It uses <span className="highlight">Databricks Zerobus</span> to stream healthcare data in real-time directly into <span className="highlight">Unity Catalog</span> tables.</p>
+                        </div>
+                        <div className="info-section">
+                            <h3>Key Features</h3>
+                            <ul>
+                                <li><strong>Real-time Streaming:</strong> Low-latency ingestion using Zerobus SDK</li>
+                                <li><strong>FHIR Native:</strong> Stores entire FHIR Bundles as JSON in VARIANT columns</li>
+                                <li><strong>Secure:</strong> Built-in Databricks authentication via Apps Gateway</li>
+                                <li><strong>Scalable:</strong> Handles up to 10,000 in-flight records with automatic recovery</li>
+                                <li><strong>Traceable:</strong> Each bundle gets a unique UUID and timestamp</li>
+                            </ul>
+                        </div>
+                        <div className="info-section">
+                            <h3>Architecture</h3>
+                            <p><strong>Ingestion Flow:</strong> FHIR Bundle → FastAPI → Zerobus Stream → Unity Catalog Table</p>
+                            <p>The application receives FHIR Bundles via REST API, validates the JSON payload, assigns metadata (UUID, timestamp, source system), and streams the data to a Unity Catalog table with a VARIANT column for flexible schema-on-read analytics.</p>
+                        </div>
+                    </div>
+                    <div className="card">
+                        <h2><span>🔌</span> API Endpoint Usage</h2>
+                        <div className="info-section">
+                            <h3>Endpoint</h3>
+                            <p className="endpoint-url">POST {window.location.origin}/api/v1/ingest/fhir-bundle</p>
+                        </div>
+                        <div className="info-section">
+                            <h3>Authentication</h3>
+                            <p>This app requires authentication via <strong>Databricks Apps Gateway</strong>. Include your Databricks personal access token or service principal credentials in the Authorization header:</p>
+                            <p style={{fontFamily: 'monospace', background: '#f8f9fa', padding: '10px', borderRadius: '4px', marginTop: '10px'}}>
+                                Authorization: Bearer YOUR_DATABRICKS_TOKEN
+                            </p>
+                        </div>
+                        <div className="info-section">
+                            <h3>Request Requirements</h3>
+                            <ul>
+                                <li><strong>Content-Type:</strong> application/json</li>
+                                <li><strong>Body:</strong> Valid JSON (typically a FHIR Bundle, but any JSON is accepted)</li>
+                                <li><strong>Max Size:</strong> Recommended under 5MB per request</li>
+                            </ul>
+                        </div>
+                        <div className="info-section">
+                            <h3>Response Format</h3>
+                            <p>On success (HTTP 200), you'll receive:</p>
+                            <div className="code-block" style={{marginTop: '10px'}}>
+{\`{
+  "status": "ok",
+  "bundle_uuid": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp": "2024-01-15T10:30:00Z"
+}\`}
+                            </div>
+                        </div>
+                        <div style={{marginTop: '30px'}}>
+                            <div className="code-header">
+                                <span className="code-title">cURL Example</span>
+                                <button className="copy-button" onClick={() => copyToClipboard(curlExample)}>📋 Copy</button>
+                            </div>
+                            <div className="code-block"><pre>{curlExample}</pre></div>
+                        </div>
+                        <div style={{marginTop: '30px'}}>
+                            <div className="code-header">
+                                <span className="code-title">Python Example</span>
+                                <button className="copy-button" onClick={() => copyToClipboard(pythonExample)}>📋 Copy</button>
+                            </div>
+                            <div className="code-block"><pre>{pythonExample}</pre></div>
+                        </div>
+                        <div className="info-section" style={{marginTop: '30px'}}>
+                            <h3>Additional Resources</h3>
+                            <p><strong>Interactive API Docs:</strong> Visit <a href="/docs" target="_blank" style={{color: '#1473E6'}}>{window.location.origin}/docs</a> for Swagger UI documentation</p>
+                            <p><strong>Health Check:</strong> Monitor endpoint availability at <a href="/health" target="_blank" style={{color: '#1473E6'}}>{window.location.origin}/health</a></p>
+                        </div>
+                    </div>
+                    <div className="footer">
+                        <p>Powered by Databricks | FastAPI | Zerobus SDK</p>
+                        <p>© 2024 FHIR to Zerobus Ingest App v1.0.0</p>
+                    </div>
+                </div>
+            );
+        }
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

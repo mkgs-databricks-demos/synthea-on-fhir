@@ -4,9 +4,12 @@ import json
 import logging
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from zerobus.sdk.sync import ZerobusSdk
@@ -115,6 +118,13 @@ app.add_middleware(
 )
 
 
+# Mount static files directory for React frontend
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    logger.info(f"Mounted static files directory: {static_dir}")
+
+
 async def verify_databricks_auth(request: Request) -> dict:
     """
     Validates Databricks authentication from headers forwarded by Databricks Apps Gateway.
@@ -178,7 +188,12 @@ async def health_check(request: Request):
 
 @app.get("/", tags=["Info"])
 async def root():
-    """Root endpoint with API information"""
+    """Root endpoint serving the React frontend"""
+    static_index = Path(__file__).parent / "static" / "index.html"
+    if static_index.exists():
+        return FileResponse(str(static_index))
+    
+    # Fallback to API info if frontend not available
     return {
         "name": app.title,
         "version": app.version,
