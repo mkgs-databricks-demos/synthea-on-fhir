@@ -169,11 +169,25 @@ async def verify_databricks_auth(request: Request) -> dict:
     }
 
 
-@app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check(request: Request):
+@app.get("/health", tags=["Health"])
+async def health_check_page():
+    """
+    Health status page - displays a professional health dashboard.
+    For programmatic JSON access, use /health/json instead.
+    """
+    static_health = Path(__file__).parent / "static" / "health.html"
+    if static_health.exists():
+        return FileResponse(str(static_health))
+    
+    # Fallback if HTML not available
+    return {"error": "Health page not found. Use /health/json for JSON response."}
+
+
+@app.get("/health/json", response_model=HealthResponse, tags=["Health"])
+async def health_check_json(request: Request):
     """
     Health check endpoint for monitoring and load balancers.
-    Returns the status of the application and Zerobus stream.
+    Returns the status of the application and Zerobus stream in JSON format.
     """
     zerobus_status = "healthy" if (
         hasattr(request.app.state, "zerobus_stream") 

@@ -87,10 +87,14 @@ fhir_zerobus/
 
 ## Features
 
+### Web Interface
+* **Main Dashboard** (`/`) - Professional UI with health monitoring, API examples, Zerobus documentation
+* **Health Status Page** (`/health`) - Real-time system health dashboard with auto-refresh
+* **Health JSON Endpoint** (`/health/json`) - Programmatic health check for monitoring systems
+
 ### FastAPI Application
-* **Health check endpoint** (`/health`) - Monitor app and Zerobus stream status
 * **Ingestion endpoint** (`/api/v1/ingest/fhir-bundle`) - POST FHIR bundles as JSON
-* **Interactive API docs** (`/docs`) - Swagger UI for testing
+* **Interactive API docs** (`/docs`) - Swagger UI for testing and exploration
 * **React dashboard** (`/`) - Status monitoring and code examples
 
 ### Zerobus Integration

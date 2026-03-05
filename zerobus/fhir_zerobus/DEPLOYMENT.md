@@ -274,8 +274,15 @@ databricks apps logs fhir-zerobus-ingest-himss2026 --follow
 ```
 
 ### Check Health Status
+
+**For humans** - Visit the health page in your browser:
+```
+https://<app-url>/health
+```
+
+**For monitoring/scripts** - Use the JSON endpoint:
 ```bash
-curl https://<app-url>/health
+curl https://<app-url>/health/json
 ```
 
 Response:
@@ -339,8 +346,9 @@ ORDER BY count DESC;
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | React dashboard (health status, docs, examples) |
-| `/health` | GET | Health check (app + Zerobus stream status) |
+| `/` | GET | Main dashboard (health status, docs, examples, Zerobus info) |
+| `/health` | GET | Professional health status page (HTML) with auto-refresh |
+| `/health/json` | GET | Health check JSON endpoint for monitoring/load balancers |
 | `/api/v1/ingest/fhir-bundle` | POST | Ingest FHIR bundle (requires auth) |
 | `/docs` | GET | Interactive Swagger API documentation |
 
