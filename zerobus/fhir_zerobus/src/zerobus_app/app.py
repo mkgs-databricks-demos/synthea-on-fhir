@@ -84,13 +84,20 @@ async def lifespan(app: FastAPI):
         # Create SDK client
         zerobus_sdk = ZerobusSdk(ZEROBUS_SERVER_ENDPOINT, WORKSPACE_URL)
         
-        # Pass the raw serialized FileDescriptor bytes (message type auto-inferred)
+        # Pass the FileDescriptor object (not serialized bytes)
         descriptor_bytes = fhir_bundle_pb2.FhirBundle.DESCRIPTOR.file.serialized_pb
         table_props = TableProperties(table_name=FHIR_BUNDLE_TABLE_NAME, descriptor_proto=descriptor_bytes)
+        
+        # Define acknowledgment callback for durability confirmation
+        def ack_callback(offset: int):
+            """Called when Zerobus confirms record is durably written"""
+            logger.debug(f"Record acknowledged at offset: {offset}")
+        
         options = StreamConfigurationOptions(
             record_type=RecordType.PROTO,
             max_inflight_records=10_000,
             recovery=True,
+            ack_callback=ack_callback,
         )
         
         # Open a long-lived protobuf stream for this table
