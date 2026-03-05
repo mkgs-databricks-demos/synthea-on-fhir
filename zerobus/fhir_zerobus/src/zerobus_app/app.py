@@ -258,14 +258,22 @@ async def ingest_fhir_bundle(
             detail="Zerobus stream not initialized. Service temporarily unavailable.",
         )
     
-    # Parse and validate JSON payload
+    # Get raw JSON string and validate it's valid JSON
     try:
-        payload = await request.json()
-    except Exception as e:
+        payload_text = await request.text()
+        # Validate it's valid JSON (will raise JSONDecodeError if invalid)
+        json.loads(payload_text)
+    except json.JSONDecodeError as e:
         logger.warning(f"Invalid JSON payload received: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid JSON payload: {str(e)}",
+        )
+    except Exception as e:
+        logger.warning(f"Error reading request body: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error reading request body: {str(e)}",
         )
     
     # Generate unique bundle ID and metadata
@@ -274,9 +282,10 @@ async def ingest_fhir_bundle(
     event_timestamp = datetime.now(timezone.utc)
     
     # Build JSON record matching table schema
+    # Use raw JSON string directly for VARIANT column (already in correct format)
     record = {
         "bundle_uuid": bundle_uuid,
-        "fhir": payload,  # VARIANT column accepts nested JSON directly
+        "fhir": payload_text,  # Raw JSON string for VARIANT column
         "source_system": "FHIR to Zerobus Ingest App",
         "event_timestamp": event_timestamp.isoformat(),  # ISO 8601 format for TIMESTAMP
         "user_email": user_email,
