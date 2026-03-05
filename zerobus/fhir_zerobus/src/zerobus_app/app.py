@@ -306,11 +306,9 @@ async def ingest_fhir_bundle(
         # Debug logging for stream type
         logger.debug(f"Stream type: {type(zerobus_stream).__name__}")
         
-        # Serialize record to JSON string (Zerobus JSON mode expects string, not dict)
-        record_json = json.dumps(record)
-        
-        # Ingest JSON record (returns offset immediately)
-        offset = zerobus_stream.ingest_record_offset(record_json)
+        # Ingest record as Python dict (SDK handles JSON encoding internally)
+        # Only VARIANT column values should be pre-encoded JSON strings
+        offset = zerobus_stream.ingest_record_offset(record)
         
         logger.info(f"Successfully ingested bundle {bundle_uuid} for user {user_email} at offset {offset}")
         
