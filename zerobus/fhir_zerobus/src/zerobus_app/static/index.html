@@ -581,7 +581,7 @@ print(f"Response: {response.json()}")`;
             errorContainer.innerHTML = '';
             
             try {
-                const response = await fetch('/health');
+                const response = await fetch('/health/json');
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
