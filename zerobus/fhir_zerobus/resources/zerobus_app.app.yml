@@ -1,0 +1,102 @@
+# Databricks App resource configuration for FHIR Bundle Zerobus Ingest Application
+# This app receives FHIR bundles via POST requests and streams them to Unity Catalog via Zerobus
+
+resources:
+  apps:
+    fhir_zerobus_ingest_app:
+      name: fhir-zerobus-ingest
+      description: >
+        FastAPI application that ingests FHIR bundles via REST API and 
+        streams them to Unity Catalog table ${var.catalog}.${var.schema}.fhir_bundle_zerobus 
+        using Databricks Zerobus SDK
+      
+      # Source code location relative to bundle root
+      source_code_path: ../src/zerobus_app
+
+      resources:
+        - name: zerobus_client_id
+          description: "Zerobus OAuth2 M2M Client ID"
+          secret: 
+            scope: ${var.secret_scope_name}
+            key: client_id
+            permission: "READ"
+        - name: zerobus_client_secret
+          description: "Zerobus OAuth2 M2M Client Secret"
+          secret: 
+            scope: ${var.secret_scope_name}
+            key: client_secret
+            permission: "READ"
+        - name: zerobus_endpoint
+          description: "Zerobus Endpoint of the form https://<workspace-id-or-shard-id>.zerobus.<region>.cloud.databricks.com"
+          secret: 
+            scope: ${var.secret_scope_name}
+            key: zerobus_endpoint
+            permission: "READ"
+        - name: workspace_url
+          description: "Workspace HOST URL"
+          secret: 
+            scope: ${var.secret_scope_name}
+            key: workspace_url
+            permission: "READ"
+        - name: fhir_bundle_table_name
+          description: "Target Table Name for the FHIR Bundle Ingestion"
+          secret: 
+            scope: ${var.secret_scope_name}
+            key: fhir_bundle_table_name
+            permission: "READ"
+      
+      # App permissions - who can use/manage the app
+      permissions:
+        - user_name: matthew.giglia@databricks.com
+          level: CAN_MANAGE
+        - group_name: users
+          level: CAN_USE
+
+# Target-specific app configurations
+targets:
+  dev:
+    resources:
+      apps:
+        fhir_zerobus_ingest_app:
+          name: fhir-zerobus-ingest-dev
+          description: >
+            [DEV] FHIR Bundle Zerobus Ingest App - 
+            Target table: ${var.catalog}.${var.schema}.fhir_bundle_zerobus
+  
+  himss2026:
+    resources:
+      apps:
+        fhir_zerobus_ingest_app:
+          name: fhir-zerobus-ingest-himss2026
+          description: >
+            [HIMSS2026] FHIR Bundle Zerobus Ingest App - 
+            Target table: ${var.catalog}.${var.schema}.fhir_bundle_zerobus
+          permissions:
+            - user_name: matthew.giglia@databricks.com
+              level: CAN_MANAGE
+            - group_name: users
+              level: CAN_USE
+  
+  prod:
+    resources:
+      apps:
+        fhir_zerobus_ingest_app:
+          name: fhir-zerobus-ingest-prod
+          description: >
+            [PROD] FHIR Bundle Zerobus Ingest App - 
+            Target table: ${var.catalog}.${var.schema}.fhir_bundle_zerobus
+          permissions:
+            - user_name: matthew.giglia@databricks.com
+              level: CAN_MANAGE
+  
+  free_edition:
+    resources:
+      apps:
+        fhir_zerobus_ingest_app:
+          name: fhir-zerobus-ingest-free
+          description: >
+            [FREE] FHIR Bundle Zerobus Ingest App - 
+            Target table: ${var.catalog}.${var.schema}.fhir_bundle_zerobus
+          permissions:
+            - user_name: matthew.giglia@databricks.com
+              level: CAN_MANAGE

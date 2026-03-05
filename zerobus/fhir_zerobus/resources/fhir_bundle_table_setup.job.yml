@@ -1,0 +1,54 @@
+# Job to create the FHIR Bundle Zerobus target table in Unity Catalog
+# Scheduled to run daily at 9 AM PT for maintenance and optimization
+
+resources:
+  jobs:
+    fhir_bundle_table_setup:
+      name: Redox-ZeroBus FHIR Bundle Ingest Table DDL
+      
+      # Scheduled to run daily at 9 AM Pacific Time
+      schedule:
+        quartz_cron_expression: "0 0 9 * * ?"
+        timezone_id: "America/Los_Angeles"
+        pause_status: "UNPAUSED"
+      
+      description: >
+        Scheduled job to maintain the fhir_bundle_zerobus table in Unity Catalog.
+        Creates the table with VARIANT support, primary key, and optimized Delta settings.
+        Runs daily at 9 AM PT.
+      
+      parameters:
+        - name: catalog_use
+          default: ${var.catalog}
+        - name: schema_use
+          default: ${var.schema}
+        - name: spn_application_id
+          default: ${var.zerobus_service_principal}
+      
+      tasks:
+        - task_key: create_fhir_bundle_table
+          notebook_task:
+            notebook_path: ../src/uc_setup/target-table-ddl.ipynb
+            source: WORKSPACE
+          
+          # Use environment for serverless SQL execution
+          environment_key: default
+      
+      # Use serverless environment configured in bundle
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "${var.serverless_environment_version}"
+      
+      # Use max concurrent runs of 1 to prevent conflicts
+      max_concurrent_runs: 1
+      
+      # Timeout after 10 minutes if something goes wrong
+      timeout_seconds: 600
+      
+      tags:
+        component: setup
+        resource_type: table
+        table_name: fhir_bundle_zerobus
+
+
