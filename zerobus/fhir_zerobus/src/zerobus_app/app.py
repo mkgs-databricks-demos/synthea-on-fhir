@@ -265,10 +265,9 @@ async def ingest_fhir_bundle(
         # FastAPI: request.body() returns bytes, decode to string
         payload_bytes = await request.body()
         payload_text = payload_bytes.decode('utf-8')
-        # Parse and re-serialize to ensure clean, normalized JSON
-        # This removes formatting issues and ensures proper encoding
+        # Parse to Python object - we'll pass this as nested dict, not pre-serialized JSON
+        # The SDK will handle JSON encoding, and VARIANT will receive proper JSON object
         payload_obj = json.loads(payload_text)
-        payload_normalized = json.dumps(payload_obj, separators=(',', ':'), ensure_ascii=True)
     except json.JSONDecodeError as e:
         logger.warning(f"Invalid JSON payload received: {e}")
         raise HTTPException(
@@ -294,10 +293,11 @@ async def ingest_fhir_bundle(
     timestamp_str = event_timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     # Build JSON record matching table schema
-    # Use normalized JSON string for VARIANT column
+    # Pass FHIR payload as nested object (not pre-serialized JSON string)
+    # The SDK will serialize the record, and VARIANT will receive proper JSON object
     record = {
         "bundle_uuid": bundle_uuid,
-        "fhir": payload_normalized,  # Normalized JSON string for VARIANT column
+        "fhir": payload_obj,  # Nested Python object for VARIANT column
         "source_system": "FHIR to Zerobus Ingest App",
         "event_timestamp": timestamp_epoch  # Unix epoch (integer)
     }
@@ -312,15 +312,16 @@ async def ingest_fhir_bundle(
         # Debug: Validate what the SDK will send (as suggested in Zerobus docs)
         try:
             body = json.dumps(record)  # This is what SDK sends internally
-            json.loads(body)  # Verify full record is valid JSON
-            json.loads(record["fhir"])  # Verify VARIANT field is valid JSON
-            logger.info(f"Record validation passed. Body length: {len(body)}, FHIR length: {len(record['fhir'])}")
+            parsed_back = json.loads(body)  # Verify full record is valid JSON
+            logger.info(f"Record validation passed. Body length: {len(body)}")
             
             # Log record structure for debugging NULL fields
+            fhir_str = json.dumps(record["fhir"]) if isinstance(record["fhir"], dict) else str(record["fhir"])
             logger.info(f"Record structure: bundle_uuid={record.get('bundle_uuid')}, "
                        f"source_system={record.get('source_system')}, "
                        f"event_timestamp={record.get('event_timestamp')}, "
-                       f"fhir_length={len(record.get('fhir', ''))}")
+                       f"fhir_type={type(record.get('fhir')).__name__}, "
+                       f"fhir_keys={list(record['fhir'].keys()) if isinstance(record['fhir'], dict) else 'N/A'}")
         except Exception as validation_error:
             logger.error(f"Record validation failed before sending to Zerobus: {validation_error}")
             logger.error(f"Problematic record (first 500 chars): {json.dumps(record)[:500]}")
