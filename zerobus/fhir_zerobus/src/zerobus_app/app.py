@@ -266,7 +266,7 @@ async def ingest_fhir_bundle(
         # Parse and re-serialize to ensure clean, normalized JSON
         # This removes formatting issues and ensures proper encoding
         payload_obj = json.loads(payload_text)
-        payload_normalized = json.dumps(payload_obj, separators=(',', ':'), ensure_ascii=False)
+        payload_normalized = json.dumps(payload_obj, separators=(',', ':'), ensure_ascii=True)
     except json.JSONDecodeError as e:
         logger.warning(f"Invalid JSON payload received: {e}")
         raise HTTPException(
@@ -310,7 +310,10 @@ async def ingest_fhir_bundle(
             body = json.dumps(record)  # This is what SDK sends internally
             json.loads(body)  # Verify full record is valid JSON
             json.loads(record["fhir"])  # Verify VARIANT field is valid JSON
-            logger.debug(f"Record validation passed. Body length: {len(body)}, FHIR length: {len(record['fhir'])}")
+            logger.info(f"Record validation passed. Body length: {len(body)}, FHIR length: {len(record['fhir'])}")
+            # Log area around column 1116 where error often occurs
+            if len(body) > 1116:
+                logger.info(f"Content around column 1116: ...{body[1100:1140]}...")
         except Exception as validation_error:
             logger.error(f"Record validation failed before sending to Zerobus: {validation_error}")
             logger.error(f"Problematic record (first 500 chars): {json.dumps(record)[:500]}")
