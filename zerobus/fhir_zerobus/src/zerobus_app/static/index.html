@@ -31,6 +31,14 @@
             border-radius: 12px;
             margin-bottom: 30px;
             box-shadow: 0 4px 20px rgba(255, 54, 33, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .header-content {
+            flex: 1;
         }
         
         .header h1 {
@@ -42,6 +50,16 @@
         .header p {
             font-size: 1.1rem;
             opacity: 0.95;
+        }
+        
+        .header-logo {
+            flex-shrink: 0;
+        }
+        
+        .header-logo img {
+            height: 60px;
+            width: auto;
+            filter: brightness(0) invert(1);
         }
         
         .card {
@@ -239,8 +257,13 @@
     <div id="root">
         <div class="container">
             <div class="header">
-                <h1>🏥 FHIR to Zerobus Ingest</h1>
-                <p>Real-time streaming ingestion of HL7 FHIR Bundles to Unity Catalog</p>
+                <div class="header-content">
+                    <h1>🏥 FHIR to Zerobus Ingest</h1>
+                    <p>Real-time streaming ingestion of HL7 FHIR Bundles to Unity Catalog</p>
+                </div>
+                <div class="header-logo">
+                    <img src="https://cdn.bfldr.com/9AYANS2F/at/b87x34rfnrgcfjvg93pt83x/databricks-symbol-light.svg?auto=webp" alt="Databricks Logo">
+                </div>
             </div>
             
             <div class="card">
@@ -291,6 +314,14 @@
                         assigns metadata (UUID, timestamp, source system), and streams the data to a Unity Catalog 
                         table with a VARIANT column for flexible schema-on-read analytics.
                     </p>
+                    <p style="margin-top: 10px;">
+                        <strong>Dual Authorization Model:</strong>
+                    </p>
+                    <ul style="margin-left: 20px;">
+                        <li><strong>User Authorization:</strong> The app validates incoming requests using the authenticated user's identity (forwarded by Apps Gateway)</li>
+                        <li><strong>App Authorization:</strong> The app uses its own service principal credentials (automatically injected by Databricks) to write to Zerobus and Unity Catalog</li>
+                        <li>This ensures all data ingestion is attributed to users while the app maintains secure, consistent write permissions</li>
+                    </ul>
                 </div>
             </div>
             
@@ -301,13 +332,31 @@
                     <p class="endpoint-url" id="endpoint-url">POST /api/v1/ingest/fhir-bundle</p>
                 </div>
                 <div class="info-section">
-                    <h3>Authentication</h3>
+                    <h3>Authentication & Authorization</h3>
                     <p>
-                        This app requires authentication via <strong>Databricks Apps Gateway</strong>. 
-                        Include your Databricks personal access token or service principal credentials in the Authorization header:
+                        This application uses <strong>Databricks Apps Gateway</strong> for OAuth2 authentication. 
+                        The gateway automatically handles user authentication and authorization.
                     </p>
+                    <p><strong>Browser Access (Automatic):</strong></p>
+                    <ul style="margin-left: 20px; margin-bottom: 10px;">
+                        <li>When accessing via browser, authentication is handled automatically by the Apps Gateway</li>
+                        <li>Your Databricks session is validated, and your identity is forwarded to the app</li>
+                        <li>No manual authentication required - just navigate to the app URL</li>
+                    </ul>
+                    <p><strong>Programmatic Access (API Calls):</strong></p>
+                    <ul style="margin-left: 20px; margin-bottom: 10px;">
+                        <li>For cURL, Python scripts, or other programmatic access, include a Bearer token</li>
+                        <li>Use a Databricks personal access token or service principal OAuth token</li>
+                        <li>The Apps Gateway validates the token and forwards user identity via HTTP headers</li>
+                    </ul>
                     <p style="font-family: monospace; background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 10px;">
                         Authorization: Bearer YOUR_DATABRICKS_TOKEN
+                    </p>
+                    <p style="margin-top: 10px;">
+                        <strong>How it works:</strong> The Apps Gateway intercepts all requests, validates OAuth2 credentials, 
+                        and forwards authenticated user information to the app via <code>x-forwarded-user</code>, 
+                        <code>x-forwarded-email</code>, and <code>x-forwarded-access-token</code> headers. 
+                        The app uses these headers to authorize requests and act on behalf of the authenticated user.
                     </p>
                 </div>
                 <div class="info-section">
@@ -328,7 +377,19 @@
 }</div>
                 </div>
                 
-                <div style="margin-top: 30px;">
+                <div class="info-section" style="margin-top: 30px;">
+                    <h3>Code Examples for Programmatic Access</h3>
+                    <p>
+                        Use these examples when calling the API from scripts, CI/CD pipelines, or external systems. 
+                        Replace <code>YOUR_DATABRICKS_TOKEN</code> with a valid Databricks personal access token 
+                        or OAuth token from a service principal.
+                    </p>
+                    <p style="margin-top: 8px;">
+                        <strong>Generate a token:</strong> Settings → Developer → Access tokens
+                    </p>
+                </div>
+                
+                <div style="margin-top: 20px;">
                     <div class="code-header">
                         <span class="code-title">cURL Example</span>
                         <button class="copy-button" onclick="copyCurl()">📋 Copy</button>
@@ -354,6 +415,10 @@
                     <p>
                         <strong>Health Check:</strong> Monitor endpoint availability at 
                         <a href="/health" target="_blank" style="color: #1473E6;">/health</a>
+                    </p>
+                    <p>
+                        <strong>Authentication Guide:</strong> Learn about Databricks Apps OAuth2 authentication at 
+                        <a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/auth/" target="_blank" style="color: #1473E6;">Databricks Apps Auth Docs</a>
                     </p>
                 </div>
             </div>

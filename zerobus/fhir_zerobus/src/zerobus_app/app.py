@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, HTTPException, Depends, status
+from fastapi import FastAPI, Request, HTTPException, Depends, status, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from typing import Any
 
 from zerobus.sdk.sync import ZerobusSdk
 from zerobus.sdk.shared import RecordType, StreamConfigurationOptions, TableProperties
@@ -216,6 +217,27 @@ async def root():
 )
 async def ingest_fhir_bundle(
     request: Request,
+    payload: Any = Body(
+        ...,
+        example={
+            "resourceType": "Bundle",
+            "type": "transaction",
+            "entry": [
+                {
+                    "resource": {
+                        "resourceType": "Patient",
+                        "id": "example",
+                        "name": [
+                            {
+                                "family": "Doe",
+                                "given": ["John"]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ),
     user_info: dict = Depends(verify_databricks_auth),
 ):
     """
@@ -249,22 +271,14 @@ async def ingest_fhir_bundle(
     
     # Parse and validate JSON payload
     try:
-        payload_bytes = await request.body()
-        payload_text = payload_bytes.decode('utf-8')
-        payload_obj = json.loads(payload_text)
+        # Payload is already parsed by FastAPI Body
         # VARIANT columns require JSON strings, not nested objects
-        payload_json_str = json.dumps(payload_obj, separators=(',', ':'))
-    except json.JSONDecodeError as e:
-        logger.warning(f"Invalid JSON payload received: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON payload: {str(e)}",
-        )
+        payload_json_str = json.dumps(payload, separators=(',', ':'))
     except Exception as e:
-        logger.warning(f"Error reading request body: {e}")
+        logger.warning(f"Error serializing payload: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error reading request body: {str(e)}",
+            detail=f"Error serializing payload: {str(e)}",
         )
     
     # Generate unique bundle ID and timestamp
