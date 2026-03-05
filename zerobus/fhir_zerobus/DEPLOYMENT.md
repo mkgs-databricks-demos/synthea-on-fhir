@@ -8,15 +8,18 @@ This Databricks Asset Bundle deploys a FastAPI application that ingests FHIR bun
 fhir_zerobus/
 ├── databricks.yml                          # Main bundle configuration
 ├── resources/
-│   ├── fhir_bundle_app.app.yml            # App resource definition
-│   ├── fhir_zerobus_etl.pipeline.yml      # DLT pipeline (if applicable)
-│   └── sample_job.job.yml                 # Sample job (if applicable)
+│   ├── zerobus_app.app.yml                # App resource definition
+│   ├── zerobus.secret_scope.yml           # Secret scope configuration
+│   ├── fhir_zerobus_etl.pipeline.yml      # DLT pipeline (optional)
+│   └── fhir_bundle_table_setup.job.yml    # Table setup job
 └── src/
     └── zerobus_app/
         ├── app.py                          # FastAPI application
         ├── config.py                       # Configuration
+        ├── app.yaml                        # App runtime config
         ├── requirements.txt                # Python dependencies
-        └── __init__.py
+        └── static/
+            └── index.html                  # React frontend dashboard
 ```
 
 ## Prerequisites
@@ -30,20 +33,26 @@ fhir_zerobus/
    - Table: `himss.redox.fhir_bundle_zerobus`
    - Schema includes: `bundle_uuid`, `fhir` (VARIANT), `source_system`, `event_timestamp`, `ingest_datetime`
 
-3. **Service Principal** with appropriate permissions:
-   - Read/write access to target table
-   - Zerobus endpoint permissions
+3. **Zerobus credentials** stored in secret scope:
+   - Scope name: `fhir_zerobus_credentials` (configurable via `${var.secret_scope_name}`)
+   - Required secrets: `client_id`, `client_secret`, `zerobus_endpoint`, `workspace_url`, `fhir_bundle_table_name`
+   - See [SECRET_SCOPE_SETUP.md](SECRET_SCOPE_SETUP.md) for instructions
+
+4. **Service Principal** (optional for production):
+   - Automatically created by Databricks Apps if not specified
+   - Needs read access to secret scope
+   - Needs write access to target Unity Catalog table
 
 ## Deployment Targets
 
 The bundle supports four deployment targets:
 
- Target | Workspace | Catalog | Schema | Purpose |
---------|-----------|---------|--------|---------|
- **dev** | fe-vm-mkgs-databricks-demos | mkgs_dev | redox | Development |
- **himss2026** | fe-sandbox-himss2026 | himss | redox | HIMSS demo |
- **prod** | fe-vm-mkgs-databricks-demos | mkgs | redox | Production |
- **free_edition** | dbc-e5684c0a-20fa | mkgs | redox | Free tier |
+| Target | Workspace | Catalog | Schema | Purpose |
+|--------|-----------|---------|--------|---------|
+| **dev** | fe-vm-mkgs-databricks-demos | mkgs_dev | redox | Development |
+| **himss2026** | fe-sandbox-himss2026 | himss | redox | HIMSS demo |
+| **prod** | fe-vm-mkgs-databricks-demos | mkgs | redox | Production |
+| **free_edition** | dbc-e5684c0a-20fa | mkgs | redox | Free tier |
 
 ## Deployment Steps
 
@@ -74,27 +83,26 @@ databricks bundle deploy -t prod
 This command will:
 - Create the app resource in the workspace
 - Upload the source code from `src/zerobus_app/`
-- Configure permissions based on the target
-- Generate a service principal for the app (auto-injected as `DATABRICKS_CLIENT_ID` and `DATABRICKS_CLIENT_SECRET`)
+- Configure environment variables from secret scope
+- Set up permissions based on the target
+- Create a service principal for the app (if needed)
 
 ### 3. Start the App
-After deployment, start the app using the CLI:
+The app starts automatically after deployment. To check status:
 
 ```bash
-# Start the app
-databricks apps deploy fhir-bundle-ingest-app-himss2026 --source-code-path ./src/zerobus_app
-
 # Check app status
-databricks apps get fhir-bundle-ingest-app-himss2026
+databricks bundle run fhir_zerobus_ingest_app -t himss2026
 
 # View app logs
-databricks apps logs fhir-bundle-ingest-app-himss2026
+databricks apps logs fhir-zerobus-ingest-himss2026
 ```
 
 ### 4. Get the App URL
-Retrieve the app URL from the bundle summary:
+Retrieve the app URL from the bundle summary or workspace UI:
 
 ```bash
+# Get bundle summary
 databricks bundle summary -t himss2026
 ```
 
@@ -103,16 +111,12 @@ Look for the `Apps` section to get the full app URL.
 ## Configuration
 
 ### Environment Variables
-The app automatically receives these from Databricks Apps:
-- `DATABRICKS_CLIENT_ID` - Service principal client ID (auto-injected)
-- `DATABRICKS_CLIENT_SECRET` - Service principal secret (auto-injected)
-
-Default values in `config.py`:
-- `ZEROBUS_SERVER_ENDPOINT`: `7474651703425732.zerobus.us-east-1.cloud.databricks.com`
-- `WORKSPACE_URL`: `https://fe-sandbox-himss2026.cloud.databricks.com/`
-- `TABLE_NAME`: `himss.redox.fhir_bundle_zerobus`
-
-To override these, set environment variables when deploying or configure them in the app settings.
+The app automatically receives these from the secret scope (configured in `resources/zerobus_app.app.yml`):
+- `ZEROBUS_CLIENT_ID` - Zerobus OAuth2 M2M client ID
+- `ZEROBUS_CLIENT_SECRET` - Zerobus OAuth2 M2M client secret
+- `ZEROBUS_SERVER_ENDPOINT` - Zerobus server endpoint URL
+- `WORKSPACE_URL` - Databricks workspace URL
+- `FHIR_BUNDLE_TABLE_NAME` - Target Unity Catalog table name
 
 ### Table Configuration
 The app writes to different tables per target via bundle variables:
@@ -124,12 +128,23 @@ The app writes to different tables per target via bundle variables:
 
 Once deployed and started, test the endpoint:
 
+### Using the React Frontend
+Navigate to the app URL in your browser to access the React dashboard:
+- View real-time health status
+- Read API documentation
+- Copy code examples with one click
+
+### Using cURL
 ```bash
-# Get the app URL from bundle summary
-APP_URL=$(databricks bundle summary -t himss2026 | grep -A 1 "fhir_bundle_ingest_app" | grep URL | awk '{print $2}')
+# Get your Databricks token
+export DATABRICKS_TOKEN="<your-token>"
+
+# Get the app URL
+export APP_URL="https://<app-url>"
 
 # Send a test FHIR bundle
-curl -X POST "${APP_URL}/ingest/fhir-bundle" \
+curl -X POST "${APP_URL}/api/v1/ingest/fhir-bundle" \
+  -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
     "resourceType": "Bundle",
@@ -150,8 +165,42 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "bundle_uuid": "550e8400-e29b-41d4-a716-446655440000"
+  "bundle_uuid": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp": "2024-03-05T12:00:00Z"
 }
+```
+
+### Using Python
+```python
+import requests
+import json
+
+token = "<your-databricks-token>"
+app_url = "https://<app-url>"
+
+bundle = {
+    "resourceType": "Bundle",
+    "type": "transaction",
+    "entry": [{
+        "resource": {
+            "resourceType": "Patient",
+            "id": "example",
+            "name": [{"family": "Doe", "given": ["Jane"]}]
+        }
+    }]
+}
+
+response = requests.post(
+    f"{app_url}/api/v1/ingest/fhir-bundle",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    },
+    json=bundle
+)
+
+print(f"Status: {response.status_code}")
+print(f"Response: {response.json()}")
 ```
 
 ## Verify Data Ingestion
@@ -164,7 +213,8 @@ SELECT
   ingest_datetime,
   source_system,
   event_timestamp,
-  fhir:resourceType::string as resource_type
+  fhir:resourceType::string as resource_type,
+  fhir
 FROM himss.redox.fhir_bundle_zerobus
 ORDER BY ingest_datetime DESC
 LIMIT 10;
@@ -173,19 +223,15 @@ LIMIT 10;
 ## Permissions
 
 ### App Permissions
-Configured in `resources/fhir_bundle_app.app.yml`:
+Configured in `resources/zerobus_app.app.yml`:
 - **CAN_MANAGE**: matthew.giglia@databricks.com
-- **CAN_USE**: users group (himss2026 target)
+- **CAN_USE**: users group (all targets)
 
-### Service Principal Permissions
-The app's service principal needs:
-1. **Zerobus permissions**: Write to the zerobus endpoint
-2. **Unity Catalog permissions**: 
-   - `USE CATALOG` on target catalog
-   - `USE SCHEMA` on target schema
-   - `SELECT` and `MODIFY` on target table
+### Secret Scope Permissions
+The app's service principal automatically gets READ permission on the secret scope.
 
-Grant these manually or via bundle:
+### Unity Catalog Permissions
+Grant these manually if using a custom service principal:
 ```sql
 GRANT USAGE ON CATALOG himss TO `<service-principal-app-id>`;
 GRANT USAGE ON SCHEMA himss.redox TO `<service-principal-app-id>`;
@@ -203,20 +249,28 @@ databricks bundle validate -t himss2026
 # 2. Deploy updated bundle
 databricks bundle deploy -t himss2026
 
-# 3. Redeploy the app to apply changes
-databricks apps deploy fhir-bundle-ingest-app-himss2026 --source-code-path ./src/zerobus_app
+# The app will automatically restart with new code
 ```
 
 ## Monitoring
 
 ### View App Logs
 ```bash
-databricks apps logs fhir-bundle-ingest-app-himss2026
+databricks apps logs fhir-zerobus-ingest-himss2026 --follow
 ```
 
-### Check App Status
+### Check Health Status
 ```bash
-databricks apps get fhir-bundle-ingest-app-himss2026
+curl https://<app-url>/health
+```
+
+Response:
+```json
+{
+  "status": "healthy",
+  "zerobus_stream": "healthy",
+  "timestamp": "2024-03-05T12:00:00Z"
+}
 ```
 
 ### Monitor Table Ingestion
@@ -229,11 +283,13 @@ FROM himss.redox.fhir_bundle_zerobus
 GROUP BY hour
 ORDER BY hour DESC;
 
--- Recent errors (if any)
-SELECT *
+-- Resource type distribution
+SELECT 
+  fhir:resourceType::string as resource_type,
+  COUNT(*) as count
 FROM himss.redox.fhir_bundle_zerobus
-WHERE fhir:issue IS NOT NULL
-ORDER BY ingest_datetime DESC;
+GROUP BY resource_type
+ORDER BY count DESC;
 ```
 
 ## Troubleshooting
@@ -241,14 +297,14 @@ ORDER BY ingest_datetime DESC;
 ### Common Issues
 
 1. **App won't start**
-   - Check logs: `databricks apps logs fhir-bundle-ingest-app-himss2026`
-   - Verify service principal has correct permissions
+   - Check logs: `databricks apps logs fhir-zerobus-ingest-himss2026`
+   - Verify secrets exist in scope: `databricks secrets list-secrets --scope fhir_zerobus_credentials`
    - Confirm zerobus endpoint is accessible
 
 2. **Authentication failures**
-   - Verify `DATABRICKS_CLIENT_ID` and `DATABRICKS_CLIENT_SECRET` are injected
-   - Check service principal exists and is active
-   - Confirm service principal has zerobus permissions
+   - Verify secrets are populated with correct values
+   - Check service principal has READ access to secret scope
+   - Ensure Databricks token is valid when testing
 
 3. **Table write failures**
    - Verify table exists: `DESCRIBE TABLE himss.redox.fhir_bundle_zerobus`
@@ -257,8 +313,22 @@ ORDER BY ingest_datetime DESC;
 
 4. **Bundle validation errors**
    - Review `databricks.yml` syntax
-   - Check resource file inclusion paths
+   - Check resource file inclusion paths match actual files
    - Verify variable references are correct
+
+5. **React frontend not loading**
+   - Verify `static/index.html` exists in `src/zerobus_app/`
+   - Check app logs for static file mounting errors
+   - Access `/docs` endpoint to verify app is running
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | React dashboard (health status, docs, examples) |
+| `/health` | GET | Health check (app + Zerobus stream status) |
+| `/api/v1/ingest/fhir-bundle` | POST | Ingest FHIR bundle (requires auth) |
+| `/docs` | GET | Interactive Swagger API documentation |
 
 ## Additional Resources
 
@@ -266,10 +336,11 @@ ORDER BY ingest_datetime DESC;
 - [Databricks Apps Documentation](https://docs.databricks.com/en/dev-tools/databricks-apps/)
 - [Zerobus SDK Documentation](https://docs.databricks.com/ingestion/zerobus/)
 - [Unity Catalog Permissions](https://docs.databricks.com/data-governance/unity-catalog/manage-privileges/)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
 
 ## Support
 
 For issues or questions:
 - Primary developer: matthew.giglia@databricks.com
-- Project: Open Epic Smart on FHIR
+- Project: Redox Zerobus
 - Business unit: Healthcare and Life Sciences
