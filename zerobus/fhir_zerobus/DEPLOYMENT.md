@@ -3,6 +3,20 @@
 ## Overview
 This Databricks Asset Bundle deploys a FastAPI application that ingests FHIR bundles via REST API and streams them to Unity Catalog using the Zerobus SDK.
 
+## What is Zerobus?
+
+**Databricks Zerobus** is a high-performance, low-latency streaming ingestion service that enables real-time data writes directly to Unity Catalog Delta tables. Unlike traditional streaming solutions (Kafka, Kinesis), Zerobus provides:
+
+* **Microsecond-level latency** - Near-instant data availability
+* **No infrastructure overhead** - No streaming clusters to manage
+* **Direct Delta writes** - Data lands immediately in Unity Catalog
+* **Schema validation** - Automatic validation against target table
+* **Built-in recovery** - Automatic retry and error handling
+
+This application uses Zerobus to stream FHIR bundles in JSON format to a Unity Catalog table with a VARIANT column, enabling flexible schema-on-read analytics.
+
+**Learn more:** [Zerobus Overview Documentation](https://docs.databricks.com/aws/en/ingestion/zerobus-overview)
+
 ## Bundle Structure
 ```
 fhir_zerobus/

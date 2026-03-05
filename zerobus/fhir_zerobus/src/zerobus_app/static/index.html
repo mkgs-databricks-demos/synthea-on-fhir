@@ -326,6 +326,76 @@
             </div>
             
             <div class="card">
+                <h2><span>⚡</span> About Databricks Zerobus</h2>
+                <div class="info-section">
+                    <h3>What is Zerobus?</h3>
+                    <p>
+                        <strong>Databricks Zerobus</strong> is a high-performance, low-latency streaming ingestion service 
+                        that enables real-time data writes directly to Unity Catalog Delta tables. It provides 
+                        microsecond-level latency for streaming data ingestion without the overhead of traditional 
+                        streaming infrastructure.
+                    </p>
+                </div>
+                
+                <div class="info-section">
+                    <h3>Key Capabilities</h3>
+                    <ul style="margin-left: 20px;">
+                        <li><strong>Ultra-low Latency:</strong> Microsecond-level acknowledgments for streaming data</li>
+                        <li><strong>Direct Table Writes:</strong> No intermediate storage or streaming clusters required</li>
+                        <li><strong>Schema Validation:</strong> Automatic validation against target table schema</li>
+                        <li><strong>Durable Writes:</strong> Data is acknowledged only after it's durably written to Delta</li>
+                        <li><strong>Multi-Protocol:</strong> Supports both gRPC (Protobuf) and HTTP (JSON) ingestion</li>
+                        <li><strong>VARIANT Support:</strong> Native support for semi-structured JSON data</li>
+                        <li><strong>Automatic Recovery:</strong> Built-in retry and error handling mechanisms</li>
+                    </ul>
+                </div>
+                
+                <div class="info-section">
+                    <h3>Architecture</h3>
+                    <p style="margin-bottom: 15px;">
+                        Zerobus acts as a high-performance bridge between streaming data sources and Unity Catalog tables, 
+                        providing a simplified ingestion path without complex streaming infrastructure:
+                    </p>
+                    <img src="https://docs.databricks.com/aws/en/assets/images/zerobus-ingest-overview-8f5f28f8bde8b3d3d985832ba4e4bf5b.png" 
+                         alt="Zerobus Architecture Diagram" 
+                         style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin: 15px 0;">
+                    <p style="margin-top: 15px;">
+                        <strong>How it works:</strong>
+                    </p>
+                    <ol style="margin-left: 20px; line-height: 1.8;">
+                        <li>Clients (like this FastAPI app) send data to the Zerobus server using SDK</li>
+                        <li>Zerobus validates data against the target Delta table schema</li>
+                        <li>Valid data is written durably to the Unity Catalog table</li>
+                        <li>Acknowledgment is sent back to the client confirming durable write</li>
+                    </ol>
+                </div>
+                
+                <div class="info-section">
+                    <h3>Why Zerobus for FHIR Ingestion?</h3>
+                    <p>
+                        This application leverages Zerobus to provide healthcare data ingestion with:
+                    </p>
+                    <ul style="margin-left: 20px;">
+                        <li><strong>Real-time Analytics:</strong> FHIR data available immediately for queries and dashboards</li>
+                        <li><strong>Simplified Architecture:</strong> No Kafka, no streaming jobs - just simple API calls</li>
+                        <li><strong>Schema Flexibility:</strong> VARIANT columns allow any FHIR resource structure</li>
+                        <li><strong>Guaranteed Delivery:</strong> Built-in acknowledgments ensure no data loss</li>
+                        <li><strong>Cost Efficiency:</strong> Pay only for what you ingest, no always-on infrastructure</li>
+                    </ul>
+                </div>
+                
+                <div class="info-section">
+                    <h3>Learn More</h3>
+                    <p>
+                        For comprehensive documentation about Databricks Zerobus, visit the 
+                        <a href="https://docs.databricks.com/aws/en/ingestion/zerobus-overview" target="_blank" style="color: #1473E6; font-weight: 600;">
+                            Zerobus Overview Documentation
+                        </a>
+                    </p>
+                </div>
+            </div>
+            
+            <div class="card">
                 <h2><span>🔌</span> API Endpoint Usage</h2>
                 <div class="info-section">
                     <h3>Endpoint</h3>
