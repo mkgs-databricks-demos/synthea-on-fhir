@@ -263,8 +263,10 @@ async def ingest_fhir_bundle(
         # FastAPI: request.body() returns bytes, decode to string
         payload_bytes = await request.body()
         payload_text = payload_bytes.decode('utf-8')
-        # Validate it's valid JSON (will raise JSONDecodeError if invalid)
-        json.loads(payload_text)
+        # Parse and re-serialize to ensure clean, normalized JSON
+        # This removes formatting issues and ensures proper encoding
+        payload_obj = json.loads(payload_text)
+        payload_normalized = json.dumps(payload_obj, separators=(',', ':'), ensure_ascii=False)
     except json.JSONDecodeError as e:
         logger.warning(f"Invalid JSON payload received: {e}")
         raise HTTPException(
@@ -284,10 +286,10 @@ async def ingest_fhir_bundle(
     event_timestamp = datetime.now(timezone.utc)
     
     # Build JSON record matching table schema
-    # Use raw JSON string directly for VARIANT column (already in correct format)
+    # Use normalized JSON string for VARIANT column
     record = {
         "bundle_uuid": bundle_uuid,
-        "fhir": payload_text,  # Raw JSON string for VARIANT column
+        "fhir": payload_normalized,  # Normalized JSON string for VARIANT column
         "source_system": "FHIR to Zerobus Ingest App",
         "event_timestamp": event_timestamp.isoformat(),  # ISO 8601 format for TIMESTAMP
         "user_email": user_email,
