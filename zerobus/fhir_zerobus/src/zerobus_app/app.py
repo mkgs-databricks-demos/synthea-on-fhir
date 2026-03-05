@@ -15,31 +15,6 @@ from pydantic import BaseModel, Field
 from zerobus.sdk.sync import ZerobusSdk
 from zerobus.sdk.shared import RecordType, StreamConfigurationOptions, TableProperties
 
-import fhir_bundle_pb2
-from google.protobuf import message as proto_message
-from google.protobuf import descriptor_pb2
-
-def fhir_bundle_to_proto(bundle_uuid: str,
-                         fhir_payload: dict,
-                         source_system: str,
-                         event_ts: datetime,
-                         user_email: str) -> fhir_bundle_pb2.FhirBundle:
-    # VARIANT → JSON-encoded string
-    fhir_json = json.dumps(fhir_payload, separators=(",", ":"))
-
-    # TIMESTAMP → epoch micros (UTC)
-    if event_ts.tzinfo is None:
-        event_ts = event_ts.replace(tzinfo=timezone.utc)
-    epoch_micros = int(event_ts.timestamp() * 1_000_000)
-
-    return fhir_bundle_pb2.FhirBundle(
-        bundle_uuid=bundle_uuid,
-        fhir=fhir_json,
-        source_system=source_system,
-        event_timestamp=epoch_micros,
-        user_email=user_email,
-    )
-
 from config import (
     ZEROBUS_SERVER_ENDPOINT,
     WORKSPACE_URL,
@@ -85,24 +60,9 @@ async def lifespan(app: FastAPI):
         # Create SDK client
         zerobus_sdk = ZerobusSdk(ZEROBUS_SERVER_ENDPOINT, WORKSPACE_URL)
         
-        # Get the FileDescriptor from the module-level DESCRIPTOR
-        file_descriptor = fhir_bundle_pb2.DESCRIPTOR
-        
-        # Extract the serialized FileDescriptorProto bytes that are embedded in the generated file
-        # This avoids CopyToProto() which doesn't exist in pure-Python protobuf implementation
-        serialized_file_desc = file_descriptor.serialized_pb
-        
-        # Create a FileDescriptorSet and parse the embedded bytes into it
-        file_descriptor_set = descriptor_pb2.FileDescriptorSet()
-        file_descriptor_proto = file_descriptor_set.file.add()
-        file_descriptor_proto.ParseFromString(serialized_file_desc)
-        
-        # Serialize the complete FileDescriptorSet
-        serialized_descriptor_set = file_descriptor_set.SerializeToString()
-        
-        logger.info(f"FileDescriptorSet created from embedded bytes, length: {len(serialized_descriptor_set)} bytes")
-        
-        table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME, serialized_descriptor_set)
+        # Use JSON mode - protobuf mode requires C++ protobuf extensions not available in container
+        logger.info(f"Initializing JSON stream for table: {FHIR_BUNDLE_TABLE_NAME}")
+        table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME)
         
         # Define acknowledgment callback for durability confirmation
         def ack_callback(offset: int):
@@ -110,13 +70,13 @@ async def lifespan(app: FastAPI):
             logger.debug(f"Record acknowledged at offset: {offset}")
         
         options = StreamConfigurationOptions(
-            record_type=RecordType.PROTO,
+            record_type=RecordType.JSON,  # Use JSON mode instead of PROTO
             max_inflight_records=10_000,
             recovery=True,
             ack_callback=ack_callback,
         )
         
-        # Open a long-lived protobuf stream for this table
+        # Open a long-lived JSON stream for this table
         zerobus_stream = zerobus_sdk.create_stream(
             CLIENT_ID,
             CLIENT_SECRET,
@@ -128,7 +88,7 @@ async def lifespan(app: FastAPI):
         app.state.zerobus_sdk = zerobus_sdk
         app.state.zerobus_stream = zerobus_stream
         
-        logger.info(f"Successfully initialized Zerobus stream for table: {FHIR_BUNDLE_TABLE_NAME}")
+        logger.info(f"Successfully initialized Zerobus JSON stream for table: {FHIR_BUNDLE_TABLE_NAME}")
         
     except Exception as e:
         logger.error(f"Failed to initialize Zerobus stream: {e}", exc_info=True)
@@ -159,7 +119,7 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(
-    title="FHIR to Zerobus Ingest App",  # Use ASCII only - avoid unicode chars that break JSON parsing
+    title="FHIR to Zerobus Ingest App",
     description="FastAPI application for ingesting FHIR bundles to Unity Catalog via Databricks Zerobus",
     version="1.0.0",
     lifespan=lifespan,
@@ -319,27 +279,27 @@ async def ingest_fhir_bundle(
     user_email = user_info.get("userName", "unknown")
     event_timestamp = datetime.now(timezone.utc)
     
-    # Convert to protobuf message
-    msg = fhir_bundle_to_proto(
-        bundle_uuid=bundle_uuid,
-        fhir_payload=payload,
-        source_system="FHIR to Zerobus Ingest App",
-        event_ts=event_timestamp,
-        user_email=user_email
-    )
+    # Build JSON record matching table schema
+    record = {
+        "bundle_uuid": bundle_uuid,
+        "fhir": payload,  # VARIANT column accepts nested JSON directly
+        "source_system": "FHIR to Zerobus Ingest App",
+        "event_timestamp": event_timestamp.isoformat(),  # ISO 8601 format for TIMESTAMP
+        "user_email": user_email,
+    }
     
     # Format timestamp for response (ISO 8601 with Z suffix)
     timestamp_str = event_timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     # Log record for debugging (excluding large payload)
-    logger.info(f"Ingesting protobuf record - UUID: {bundle_uuid}, User: {user_email}, Timestamp: {timestamp_str}")
+    logger.info(f"Ingesting JSON record - UUID: {bundle_uuid}, User: {user_email}, Timestamp: {timestamp_str}")
     
     # Ingest to Zerobus with error handling
     try:
         zerobus_stream = request.app.state.zerobus_stream
         
-        # Ingest protobuf message (SDK handles serialization)
-        offset = zerobus_stream.ingest_record_offset(msg)
+        # Ingest JSON record
+        offset = zerobus_stream.ingest_record_offset(record)
         
         logger.info(f"Successfully ingested bundle {bundle_uuid} for user {user_email} at offset {offset}")
         
