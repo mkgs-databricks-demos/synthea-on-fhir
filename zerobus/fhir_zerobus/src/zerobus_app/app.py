@@ -63,11 +63,14 @@ async def lifespan(app: FastAPI):
         logger.info(f"Initializing JSON stream for table: {FHIR_BUNDLE_TABLE_NAME}")
         table_props = TableProperties(FHIR_BUNDLE_TABLE_NAME)
         
+        # Create stream options with explicit configuration
         options = StreamConfigurationOptions(
             record_type=RecordType.JSON,  # Use JSON mode instead of PROTO
             max_inflight_records=10_000,
-            recovery=True,
+            recovery=True,  # Enable durable writes
         )
+        
+        logger.info(f"Stream configuration: record_type=JSON, max_inflight=10000, recovery=True")
         
         # Open a long-lived JSON stream for this table
         zerobus_stream = zerobus_sdk.create_stream(
@@ -312,9 +315,12 @@ async def ingest_fhir_bundle(
             json.loads(body)  # Verify full record is valid JSON
             json.loads(record["fhir"])  # Verify VARIANT field is valid JSON
             logger.info(f"Record validation passed. Body length: {len(body)}, FHIR length: {len(record['fhir'])}")
-            # Log area around column 1116 where error often occurs
-            if len(body) > 1116:
-                logger.info(f"Content around column 1116: ...{body[1100:1140]}...")
+            
+            # Log record structure for debugging NULL fields
+            logger.info(f"Record structure: bundle_uuid={record.get('bundle_uuid')}, "
+                       f"source_system={record.get('source_system')}, "
+                       f"event_timestamp={record.get('event_timestamp')}, "
+                       f"fhir_length={len(record.get('fhir', ''))}")
         except Exception as validation_error:
             logger.error(f"Record validation failed before sending to Zerobus: {validation_error}")
             logger.error(f"Problematic record (first 500 chars): {json.dumps(record)[:500]}")
