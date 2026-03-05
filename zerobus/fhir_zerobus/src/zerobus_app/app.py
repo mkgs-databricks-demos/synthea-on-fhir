@@ -36,7 +36,6 @@ class IngestResponse(BaseModel):
     """Response model for successful FHIR bundle ingestion"""
     status: str = Field(default="ok", description="Status of the ingestion")
     bundle_uuid: str = Field(..., description="Unique identifier for the ingested bundle")
-    user: str = Field(..., description="Authenticated user who submitted the bundle")
     timestamp: str = Field(..., description="ISO timestamp of ingestion")
 
 
@@ -295,11 +294,10 @@ async def ingest_fhir_bundle(
         "fhir": payload_normalized,  # Normalized JSON string for VARIANT column
         "source_system": "FHIR to Zerobus Ingest App",
         "event_timestamp": timestamp_str,  # ISO 8601 string (no microseconds)
-        "user_email": user_email,
     }
     
     # Log record for debugging (excluding large payload)
-    logger.info(f"Ingesting JSON record - UUID: {bundle_uuid}, User: {user_email}, Timestamp: {timestamp_str}")
+    logger.info(f"Ingesting JSON record - UUID: {bundle_uuid}, Timestamp: {timestamp_str}")
     
     # Ingest to Zerobus with error handling
     try:
@@ -323,7 +321,7 @@ async def ingest_fhir_bundle(
         # Only VARIANT column values should be pre-encoded JSON strings
         offset = zerobus_stream.ingest_record_offset(record)
         
-        logger.info(f"Successfully ingested bundle {bundle_uuid} for user {user_email} at offset {offset}")
+        logger.info(f"Successfully ingested bundle {bundle_uuid} at offset {offset}")
         
     except Exception as e:
         logger.error(f"Failed to write to Zerobus: {e}", exc_info=True)
@@ -336,6 +334,5 @@ async def ingest_fhir_bundle(
     return IngestResponse(
         status="ok",
         bundle_uuid=bundle_uuid,
-        user=user_email,
         timestamp=timestamp_str,
     )
