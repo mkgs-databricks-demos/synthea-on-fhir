@@ -25,5 +25,8 @@ env:
 
   - name: FHIR_BUNDLE_TABLE_NAME
     valueFrom: fhir_bundle_table_name
+  
+  - name: PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
+    value: cpp
 
   
