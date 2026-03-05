@@ -260,7 +260,9 @@ async def ingest_fhir_bundle(
     
     # Get raw JSON string and validate it's valid JSON
     try:
-        payload_text = await request.text()
+        # FastAPI: request.body() returns bytes, decode to string
+        payload_bytes = await request.body()
+        payload_text = payload_bytes.decode('utf-8')
         # Validate it's valid JSON (will raise JSONDecodeError if invalid)
         json.loads(payload_text)
     except json.JSONDecodeError as e:
