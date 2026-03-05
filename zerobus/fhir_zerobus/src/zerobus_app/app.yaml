@@ -6,7 +6,7 @@ command: [
   ,"--port"
   ,"8000"
   ,"--log-level"
-  ,"info"
+  ,"debug"
 ]
 
 env: 
