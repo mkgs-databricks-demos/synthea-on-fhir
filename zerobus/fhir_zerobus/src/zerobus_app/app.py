@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from typing import Any
+from typing import Any, Optional
 
 from zerobus.sdk.sync import ZerobusSdk
 from zerobus.sdk.shared import RecordType, StreamConfigurationOptions, TableProperties
@@ -126,6 +126,39 @@ if static_dir.exists():
     logger.info(f"Mounted static files directory: {static_dir}")
 
 
+def extract_request_headers(request: Request) -> dict[str, Optional[str]]:
+    """
+    Extracts all X-Forwarded-* and related headers from Databricks Apps Gateway.
+    
+    These headers are forwarded by the Databricks Apps reverse proxy and contain
+    information about the original request and authenticated user.
+    
+    Args:
+        request: FastAPI request object containing forwarded headers
+        
+    Returns:
+        dict: Dictionary containing all available forwarded headers
+        
+    References:
+        - https://docs.databricks.com/aws/en/dev-tools/databricks-apps/http-headers/
+    """
+    headers = {
+        "x_forwarded_host": request.headers.get("x-forwarded-host"),
+        "x_forwarded_preferred_username": request.headers.get("x-forwarded-preferred-username"),
+        "x_forwarded_user": request.headers.get("x-forwarded-user"),
+        "x_forwarded_email": request.headers.get("x-forwarded-email"),
+        "x_forwarded_access_token": request.headers.get("x-forwarded-access-token"),
+        "x_real_ip": request.headers.get("x-real-ip"),
+        "x_request_id": request.headers.get("x-request-id"),
+    }
+    
+    # Log available headers for debugging (excluding sensitive token)
+    available_headers = {k: v for k, v in headers.items() if v is not None and k != "x_forwarded_access_token"}
+    logger.debug(f"Extracted headers: {available_headers}")
+    
+    return headers
+
+
 async def verify_databricks_auth(request: Request) -> dict:
     """
     Validates Databricks authentication from headers forwarded by Databricks Apps Gateway.
@@ -226,8 +259,8 @@ async def root():
     response_model=IngestResponse,
     status_code=status.HTTP_200_OK,
     tags=["Ingestion"],
-    summary="Ingest FHIR Bundle",
-    description="Accepts a FHIR Bundle (or any JSON) and streams it to Unity Catalog via Zerobus",
+    summary="Ingest FHIR Bundle with Request Metadata",
+    description="Accepts a FHIR Bundle (or any JSON) and streams it to Unity Catalog via Zerobus. Automatically captures request metadata including user identity, IP address, and request ID.",
 )
 async def ingest_fhir_bundle(
     request: Request,
@@ -255,10 +288,23 @@ async def ingest_fhir_bundle(
     user_info: dict = Depends(verify_databricks_auth),
 ):
     """
-    Accepts arbitrary JSON (e.g., a FHIR Bundle) and writes it
-    into the `fhir` VARIANT column via Zerobus streaming ingestion.
+    Accepts arbitrary JSON (e.g., a FHIR Bundle) and writes it to Unity Catalog
+    via Zerobus streaming ingestion.
     
-    Requires authentication via Databricks Apps Gateway.
+    **Data Storage:**
+    - Your payload is stored in the `fhir` VARIANT column
+    - Request metadata is automatically captured in the `request_detail` VARIANT column
+    
+    **Request Metadata Captured:**
+    - `x_forwarded_host`: Original host/domain
+    - `x_forwarded_user`: User identifier (required for auth)
+    - `x_forwarded_email`: User email address
+    - `x_forwarded_preferred_username`: Username from IdP
+    - `x_forwarded_access_token`: Access token (stored but excluded from logs)
+    - `x_real_ip`: Client IP address
+    - `x_request_id`: Unique request UUID
+    
+    Query request details with SQL: `SELECT request_detail:x_forwarded_user::string FROM table`
     
     **Authentication:**
     - Access this endpoint via Databricks Apps with Bearer token
@@ -295,6 +341,10 @@ async def ingest_fhir_bundle(
             detail=f"Error serializing payload: {str(e)}",
         )
     
+    # Extract all forwarded headers for request_detail
+    request_headers = extract_request_headers(request)
+    request_detail_json_str = json.dumps(request_headers, separators=(',', ':'))
+    
     # Generate unique bundle ID and timestamp
     bundle_uuid = str(uuid.uuid4())
     event_timestamp = datetime.now(timezone.utc)
@@ -302,11 +352,14 @@ async def ingest_fhir_bundle(
     timestamp_str = event_timestamp.isoformat().replace('+00:00', 'Z')
     
     # Build record matching table schema
+    # Schema: [bundle_uuid: STRING, fhir: VARIANT, source_system: STRING, 
+    #          event_timestamp: TIMESTAMP, request_detail: VARIANT]
     record = {
         "bundle_uuid": bundle_uuid,
         "fhir": payload_json_str,
         "source_system": SOURCE_SYSTEM_NAME,
-        "event_timestamp": timestamp_epoch_micros
+        "event_timestamp": timestamp_epoch_micros,
+        "request_detail": request_detail_json_str
     }
     
     logger.info(f"Ingesting bundle - UUID: {bundle_uuid}, User: {user_info.get('userName', 'unknown')}")
@@ -318,6 +371,7 @@ async def ingest_fhir_bundle(
         # Validate record structure
         json.dumps(record)  # Ensure full record is serializable
         json.loads(record["fhir"])  # Ensure FHIR field is valid JSON
+        json.loads(record["request_detail"])  # Ensure request_detail is valid JSON
         
         offset = zerobus_stream.ingest_record_offset(record)
         zerobus_stream.flush()
