@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Redox MCP | Powered by Databricks</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1F534;</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1F7E2;</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
@@ -16,7 +16,7 @@
       theme: {
         extend: {
           colors: {
-            redox: { red: '#E63B2E', dark: '#151528', navy: '#1E1E36', light: '#FEF2F1' },
+            redox: { teal: '#00C389', dark: '#0B1B2B', navy: '#122236', light: '#ECFDF5' },
             dbx: { red: '#FF3621' },
           },
           fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
@@ -32,10 +32,10 @@
     .animate-fade-in-up { animation: fadeInUp .6s ease-out forwards; opacity:0; }
     .delay-1 { animation-delay:.1s } .delay-2 { animation-delay:.2s } .delay-3 { animation-delay:.3s }
     .delay-4 { animation-delay:.4s } .delay-5 { animation-delay:.5s } .delay-6 { animation-delay:.6s }
-    .gradient-hero { background: linear-gradient(135deg, #151528 0%, #2a1a2e 40%, #3d1520 70%, #E63B2E 100%); }
+    .gradient-hero { background: linear-gradient(135deg, #0B1B2B 0%, #0F2940 40%, #0A3D5C 70%, #00C389 100%); }
     .gradient-card { background: linear-gradient(135deg, #fff 0%, #FEF2F1 100%); }
     .shimmer-bg { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
-    .chat-step { border-left: 3px solid #E63B2E; }
+    .chat-step { border-left: 3px solid #00C389; }
     html { scroll-behavior: smooth; }
     body { overflow-x: hidden; }
   </style>
@@ -103,7 +103,7 @@
     ];
 
     // ========== Redox Logo SVG ==========
-    function RedoxLogo({ className = '', color = '#E63B2E' }) {
+    function RedoxLogo({ className = '', color = '#00C389' }) {
       return (
         <svg className={className} viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
           <text x="0" y="25" fontFamily="Inter, system-ui, sans-serif" fontWeight="800" fontSize="28" fill={color} letterSpacing="-1">
@@ -127,7 +127,7 @@
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
               <div className="flex items-center gap-3">
-                <RedoxLogo className="h-7 w-auto" color="#E63B2E" />
+                <RedoxLogo className="h-7 w-auto" color="#00C389" />
                 <span className="text-white/40 text-sm font-light">|</span>
                 <span className="text-white/70 text-sm font-medium">MCP Server</span>
               </div>
@@ -139,7 +139,7 @@
               </nav>
               <div className="flex items-center gap-3">
                 <a href={AGENT_URL} target="_blank" rel="noopener noreferrer"
-                   className="hidden sm:inline-flex items-center gap-2 bg-redox-red hover:bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+                   className="hidden sm:inline-flex items-center gap-2 bg-redox-teal hover:bg-emerald-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
                   Open Agent
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                 </a>
@@ -156,8 +156,8 @@
       return (
         <section className="gradient-hero pt-28 pb-20 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
           <div className="absolute inset-0 opacity-10">
-            <div className="absolute top-20 left-10 w-72 h-72 bg-redox-red rounded-full blur-3xl"></div>
-            <div className="absolute bottom-10 right-20 w-96 h-96 bg-red-400 rounded-full blur-3xl"></div>
+            <div className="absolute top-20 left-10 w-72 h-72 bg-redox-teal rounded-full blur-3xl"></div>
+            <div className="absolute bottom-10 right-20 w-96 h-96 bg-emerald-400 rounded-full blur-3xl"></div>
           </div>
           <div className="max-w-7xl mx-auto relative z-10">
             <div className="max-w-3xl animate-fade-in-up">
@@ -167,7 +167,7 @@
               </div>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-tight mb-6">
                 Redox MCP Server<br />
-                <span className="text-redox-red">on Databricks</span>
+                <span className="text-redox-teal">on Databricks</span>
               </h1>
               <p className="text-lg sm:text-xl text-white/70 mb-8 leading-relaxed max-w-2xl">
                 Access the Redox healthcare interoperability platform through the Model Context Protocol.
@@ -175,7 +175,7 @@
               </p>
               <div className="flex flex-wrap gap-4">
                 <a href={AGENT_URL} target="_blank" rel="noopener noreferrer"
-                   className="inline-flex items-center gap-2 bg-redox-red hover:bg-red-600 text-white font-semibold px-6 py-3 rounded-xl transition-all hover:shadow-lg hover:shadow-red-500/20">
+                   className="inline-flex items-center gap-2 bg-redox-teal hover:bg-emerald-600 text-white font-semibold px-6 py-3 rounded-xl transition-all hover:shadow-lg hover:shadow-emerald-500/20">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
                   Chat with Redox Agent
                 </a>
@@ -240,11 +240,11 @@
             <div className="p-6 sm:p-8">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-gray-900 flex items-center gap-3">
-                  <svg className="w-6 h-6 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+                  <svg className="w-6 h-6 text-redox-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
                   Service Health
                 </h2>
                 <button onClick={fetchHealth} disabled={loading}
-                        className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-redox-red transition-colors disabled:opacity-50">
+                        className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-redox-teal transition-colors disabled:opacity-50">
                   <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                   Refresh
                 </button>
@@ -297,7 +297,7 @@
             </div>
             <div className="bg-gray-50 px-6 sm:px-8 py-3 border-t border-gray-100">
               <div className="w-full bg-gray-200 rounded-full h-1">
-                <div className="bg-redox-red h-1 rounded-full transition-all duration-1000" style={{width: `${((HEALTH_INTERVAL_SEC - countdown) / HEALTH_INTERVAL_SEC) * 100}%`}}></div>
+                <div className="bg-redox-teal h-1 rounded-full transition-all duration-1000" style={{width: `${((HEALTH_INTERVAL_SEC - countdown) / HEALTH_INTERVAL_SEC) * 100}%`}}></div>
               </div>
             </div>
           </div>
@@ -345,19 +345,19 @@
       return (
         <div id="docs" className="scroll-mt-20">
           <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-            <svg className="w-7 h-7 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+            <svg className="w-7 h-7 text-redox-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
             Documentation
           </h2>
           <div className="grid sm:grid-cols-2 gap-4">
             {docs.map((doc, i) => (
               <a key={i} href={doc.url} target="_blank" rel="noopener noreferrer"
-                 className={`group bg-white rounded-xl p-5 border border-gray-100 hover:border-redox-red/30 hover:shadow-md transition-all animate-fade-in-up delay-${i + 1}`}>
+                 className={`group bg-white rounded-xl p-5 border border-gray-100 hover:border-redox-teal/30 hover:shadow-md transition-all animate-fade-in-up delay-${i + 1}`}>
                 <div className="flex items-start gap-4">
-                  <div className="flex-shrink-0 w-10 h-10 bg-redox-light rounded-lg flex items-center justify-center text-redox-red group-hover:bg-redox-red group-hover:text-white transition-colors">
+                  <div className="flex-shrink-0 w-10 h-10 bg-redox-light rounded-lg flex items-center justify-center text-redox-teal group-hover:bg-redox-teal group-hover:text-white transition-colors">
                     {doc.icon}
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-900 group-hover:text-redox-red transition-colors flex items-center gap-2">
+                    <h3 className="font-semibold text-gray-900 group-hover:text-redox-teal transition-colors flex items-center gap-2">
                       {doc.title}
                       <svg className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                     </h3>
@@ -386,12 +386,12 @@
         <div id="examples" className="scroll-mt-20">
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-              <svg className="w-7 h-7 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+              <svg className="w-7 h-7 text-redox-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
               Using the Redox MCP with AI Playground
             </h2>
             <p className="text-gray-500 mt-2 max-w-2xl">
               Follow these steps to interact with the Redox platform through the{' '}
-              <a href={AGENT_URL} target="_blank" rel="noopener noreferrer" className="text-redox-red hover:underline font-medium">
+              <a href={AGENT_URL} target="_blank" rel="noopener noreferrer" className="text-redox-teal hover:underline font-medium">
                 Redox Agent
               </a>. Copy each prompt and paste it into the chat interface.
             </p>
@@ -401,7 +401,7 @@
             {CHAT_STEPS.map((step, i) => (
               <div key={i} className={`chat-step bg-white rounded-xl p-5 sm:p-6 border border-gray-100 hover:shadow-sm transition-all animate-fade-in-up delay-${i + 1}`}>
                 <div className="flex items-start gap-4">
-                  <div className="flex-shrink-0 w-10 h-10 bg-redox-red rounded-full flex items-center justify-center text-white font-bold text-sm">
+                  <div className="flex-shrink-0 w-10 h-10 bg-redox-teal rounded-full flex items-center justify-center text-white font-bold text-sm">
                     {step.step}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -429,7 +429,7 @@
 
                     {step.linkUrl && (
                       <a href={step.linkUrl} target="_blank" rel="noopener noreferrer"
-                         className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-redox-red hover:text-red-700 transition-colors">
+                         className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-redox-teal hover:text-emerald-700 transition-colors">
                         {step.linkLabel}
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                       </a>
@@ -493,13 +493,13 @@
       return (
         <div id="best-practices" className="scroll-mt-20">
           <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-            <svg className="w-7 h-7 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+            <svg className="w-7 h-7 text-redox-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
             Best Practices for External MCP on Databricks
           </h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {practices.map((p, i) => (
-              <div key={i} className={`bg-white rounded-xl p-5 border border-gray-100 hover:border-redox-red/20 hover:shadow-sm transition-all animate-fade-in-up delay-${(i % 6) + 1}`}>
-                <div className="w-10 h-10 bg-redox-light rounded-lg flex items-center justify-center text-redox-red mb-3">
+              <div key={i} className={`bg-white rounded-xl p-5 border border-gray-100 hover:border-redox-teal/20 hover:shadow-sm transition-all animate-fade-in-up delay-${(i % 6) + 1}`}>
+                <div className="w-10 h-10 bg-redox-light rounded-lg flex items-center justify-center text-redox-teal mb-3">
                   {p.icon}
                 </div>
                 <h3 className="font-semibold text-gray-900 mb-2">{p.title}</h3>
@@ -516,7 +516,7 @@
       return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
           <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-            <svg className="w-6 h-6 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" /></svg>
+            <svg className="w-6 h-6 text-redox-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" /></svg>
             Architecture
           </h2>
           <div className="bg-redox-dark rounded-xl p-6 text-white font-mono text-sm overflow-x-auto">
@@ -553,7 +553,7 @@
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
               <div className="flex items-center gap-4">
-                <RedoxLogo className="h-6 w-auto" color="#E63B2E" />
+                <RedoxLogo className="h-6 w-auto" color="#00C389" />
                 <span className="text-white/30">+</span>
                 <img src={DBX_LOGO} alt="Databricks" className="h-7 w-7" />
               </div>
