@@ -17,7 +17,8 @@ from typing import Any, Dict, Optional, List
 from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
@@ -777,6 +778,14 @@ app.add_middleware(
 )
 
 # ============================================================================
+# Static Files for React Frontend
+# ============================================================================
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+    logger.info(f"Static files mounted from: {_static_dir}")
+
+# ============================================================================
 # Exception Handlers
 # ============================================================================
 @app.exception_handler(HTTPException)
@@ -808,7 +817,19 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ============================================================================
 @app.get("/")
 async def root():
-    """Root endpoint with basic info"""
+    """Serve the React frontend or fallback to JSON info"""
+    index_path = Path(__file__).parent / "static" / "index.html"
+    if index_path.exists():
+        return FileResponse(str(index_path), media_type="text/html")
+    return _get_service_info()
+
+@app.get("/api/v1/info")
+async def service_info():
+    """Service info endpoint (JSON)"""
+    return _get_service_info()
+
+def _get_service_info():
+    """Internal helper for service info JSON"""
     return {
         "service": "Redox MCP HTTP Proxy"
         , "status": "running"
@@ -819,6 +840,7 @@ async def root():
             "health": "/api/v1/health"
             , "metrics": "/api/v1/metrics"
             , "tools": "/api/v1/tools"
+            , "info": "/api/v1/info"
             , "debug_env": "/api/v1/debug/env"
             , "debug_process": "/api/v1/debug/process"
             , "debug_test_mcp": "/api/v1/debug/test-mcp"

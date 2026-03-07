@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Redox MCP | Powered by Databricks</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1F534;</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            redox: { red: '#E63B2E', dark: '#151528', navy: '#1E1E36', light: '#FEF2F1' },
+            dbx: { red: '#FF3621' },
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes pulseDot { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.3);opacity:.6} }
+    @keyframes fadeInUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    .animate-pulse-dot { animation: pulseDot 2s ease-in-out infinite; }
+    .animate-fade-in-up { animation: fadeInUp .6s ease-out forwards; opacity:0; }
+    .delay-1 { animation-delay:.1s } .delay-2 { animation-delay:.2s } .delay-3 { animation-delay:.3s }
+    .delay-4 { animation-delay:.4s } .delay-5 { animation-delay:.5s } .delay-6 { animation-delay:.6s }
+    .gradient-hero { background: linear-gradient(135deg, #151528 0%, #2a1a2e 40%, #3d1520 70%, #E63B2E 100%); }
+    .gradient-card { background: linear-gradient(135deg, #fff 0%, #FEF2F1 100%); }
+    .shimmer-bg { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+    .chat-step { border-left: 3px solid #E63B2E; }
+    html { scroll-behavior: smooth; }
+    body { overflow-x: hidden; }
+  </style>
+</head>
+<body class="bg-gray-50 font-sans antialiased text-gray-800">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    // ========== Constants ==========
+    const HEALTH_INTERVAL_MS = 27 * 60 * 1000;
+    const HEALTH_INTERVAL_SEC = 27 * 60;
+    const REDOX_DOCS = 'https://docs.redoxengine.com/';
+    const REDOX_SITE = 'https://redoxengine.com/';
+    const AGENT_URL = 'https://agent-redox-7474657999482942.aws.databricksapps.com';
+    const ZEROBUS_URL = 'https://fhir-zerobus-ingest-himss2026-7474657999482942.aws.databricksapps.com';
+    const DBX_LOGO = 'https://cdn.bfldr.com/9AYANS2F/at/b87x34rfnrgcfjvg93pt83x/databricks-symbol-light.svg?auto=webp';
+
+    const CHAT_STEPS = [
+      {
+        step: 1,
+        title: 'Discover Available Tools',
+        prompt: 'What tools are available with the Redox MCP?',
+        description: 'Start by exploring all the tools the Redox MCP Server exposes. This will list capabilities for managing organizations, environments, destinations, and test data within the Redox platform.',
+        tip: 'The MCP server will return a comprehensive list of tools including organization management, environment queries, destination lookups, and test set operations.',
+      },
+      {
+        step: 2,
+        title: 'Set Your Organization Context',
+        prompt: 'Set my organization ID to 18074',
+        description: 'Configure your session with your Redox organization ID. The default organization ID for Databricks is 18074.',
+        tip: 'This sets the context for all subsequent operations. Each organization has its own environments, destinations, and test configurations.',
+      },
+      {
+        step: 3,
+        title: 'Explore Environments',
+        prompt: 'What environments are available for my org?',
+        description: 'Query the available environments for your organization. Environments separate your development, staging, and production configurations.',
+        tip: 'The default environment for the Databricks organization is Staging. Each environment has its own set of destinations and configurations.',
+      },
+      {
+        step: 4,
+        title: 'List Available Destinations',
+        prompt: 'What destinations are available in my staging environment?',
+        description: 'Discover the destinations configured in your environment. Destinations are the endpoints where healthcare data messages can be sent.',
+        tip: 'Look for the ZeroBus destination \u2014 this is the Databricks-native ingestion endpoint for real-time FHIR data processing.',
+      },
+      {
+        step: 5,
+        title: 'Find Test Sets',
+        prompt: 'What test sets are available to send to a destination?',
+        description: 'List the test data sets you can send through the Redox platform. These include ADT (Admit/Discharge/Transfer), ORU (Results), and other HL7/FHIR message types.',
+        tip: 'Test sets let you simulate real healthcare data flows without affecting production systems.',
+      },
+      {
+        step: 6,
+        title: 'Send a Test to ZeroBus',
+        prompt: 'Send the ADT test to the ZeroBus destination',
+        description: 'Execute an ADT (Admit/Discharge/Transfer) test by sending it to the ZeroBus destination. This triggers real-time FHIR data ingestion into Databricks Delta tables.',
+        tip: null,
+        linkLabel: 'View ZeroBus Ingest App',
+        linkUrl: 'https://fhir-zerobus-ingest-himss2026-7474657999482942.aws.databricksapps.com',
+      },
+    ];
+
+    // ========== Redox Logo SVG ==========
+    function RedoxLogo({ className = '', color = '#E63B2E' }) {
+      return (
+        <svg className={className} viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <text x="0" y="25" fontFamily="Inter, system-ui, sans-serif" fontWeight="800" fontSize="28" fill={color} letterSpacing="-1">
+            redox
+          </text>
+        </svg>
+      );
+    }
+
+    // ========== Header ==========
+    function Header() {
+      const [scrolled, setScrolled] = useState(false);
+      useEffect(() => {
+        const onScroll = () => setScrolled(window.scrollY > 10);
+        window.addEventListener('scroll', onScroll);
+        return () => window.removeEventListener('scroll', onScroll);
+      }, []);
+
+      return (
+        <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'bg-redox-dark/95 backdrop-blur-md shadow-lg' : 'bg-redox-dark'}`}>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <div className="flex items-center gap-3">
+                <RedoxLogo className="h-7 w-auto" color="#E63B2E" />
+                <span className="text-white/40 text-sm font-light">|</span>
+                <span className="text-white/70 text-sm font-medium">MCP Server</span>
+              </div>
+              <nav className="hidden md:flex items-center gap-8">
+                <a href="#health" className="text-white/70 hover:text-white text-sm font-medium transition-colors">Health</a>
+                <a href="#docs" className="text-white/70 hover:text-white text-sm font-medium transition-colors">Documentation</a>
+                <a href="#examples" className="text-white/70 hover:text-white text-sm font-medium transition-colors">Examples</a>
+                <a href="#best-practices" className="text-white/70 hover:text-white text-sm font-medium transition-colors">Best Practices</a>
+              </nav>
+              <div className="flex items-center gap-3">
+                <a href={AGENT_URL} target="_blank" rel="noopener noreferrer"
+                   className="hidden sm:inline-flex items-center gap-2 bg-redox-red hover:bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+                  Open Agent
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                </a>
+                <img src={DBX_LOGO} alt="Databricks" className="h-8 w-8 object-contain" />
+              </div>
+            </div>
+          </div>
+        </header>
+      );
+    }
+
+    // ========== Hero ==========
+    function Hero() {
+      return (
+        <section className="gradient-hero pt-28 pb-20 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-20 left-10 w-72 h-72 bg-redox-red rounded-full blur-3xl"></div>
+            <div className="absolute bottom-10 right-20 w-96 h-96 bg-red-400 rounded-full blur-3xl"></div>
+          </div>
+          <div className="max-w-7xl mx-auto relative z-10">
+            <div className="max-w-3xl animate-fade-in-up">
+              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-1.5 mb-6">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse-dot"></span>
+                <span className="text-white/80 text-sm font-medium">External MCP Server on Databricks</span>
+              </div>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-tight mb-6">
+                Redox MCP Server<br />
+                <span className="text-redox-red">on Databricks</span>
+              </h1>
+              <p className="text-lg sm:text-xl text-white/70 mb-8 leading-relaxed max-w-2xl">
+                Access the Redox healthcare interoperability platform through the Model Context Protocol.
+                Query organizations, environments, destinations, and send test data — all through conversational AI.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <a href={AGENT_URL} target="_blank" rel="noopener noreferrer"
+                   className="inline-flex items-center gap-2 bg-redox-red hover:bg-red-600 text-white font-semibold px-6 py-3 rounded-xl transition-all hover:shadow-lg hover:shadow-red-500/20">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                  Chat with Redox Agent
+                </a>
+                <a href={REDOX_DOCS} target="_blank" rel="noopener noreferrer"
+                   className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white font-semibold px-6 py-3 rounded-xl transition-all backdrop-blur-sm border border-white/20">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                  View Documentation
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    // ========== Health Check ==========
+    function HealthCard() {
+      const [health, setHealth] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [countdown, setCountdown] = useState(HEALTH_INTERVAL_SEC);
+      const [lastChecked, setLastChecked] = useState(null);
+      const intervalRef = useRef(null);
+      const countdownRef = useRef(null);
+
+      const fetchHealth = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch('/api/v1/health');
+          const data = await res.json();
+          setHealth({ ...data, httpStatus: res.status });
+          setLastChecked(new Date());
+        } catch (e) {
+          setError(e.message);
+          setHealth(null);
+        } finally {
+          setLoading(false);
+          setCountdown(HEALTH_INTERVAL_SEC);
+        }
+      }, []);
+
+      useEffect(() => {
+        fetchHealth();
+        intervalRef.current = setInterval(fetchHealth, HEALTH_INTERVAL_MS);
+        countdownRef.current = setInterval(() => {
+          setCountdown(c => Math.max(0, c - 1));
+        }, 1000);
+        return () => {
+          clearInterval(intervalRef.current);
+          clearInterval(countdownRef.current);
+        };
+      }, [fetchHealth]);
+
+      const isHealthy = health && health.status === 'healthy';
+      const minutes = Math.floor(countdown / 60);
+      const seconds = countdown % 60;
+
+      return (
+        <div id="health" className="scroll-mt-20">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="p-6 sm:p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-3">
+                  <svg className="w-6 h-6 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+                  Service Health
+                </h2>
+                <button onClick={fetchHealth} disabled={loading}
+                        className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-redox-red transition-colors disabled:opacity-50">
+                  <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  Refresh
+                </button>
+              </div>
+
+              {loading && !health ? (
+                <div className="space-y-3">
+                  <div className="h-10 shimmer-bg rounded-lg w-48"></div>
+                  <div className="h-4 shimmer-bg rounded w-64"></div>
+                </div>
+              ) : error ? (
+                <div className="flex items-center gap-3 p-4 bg-red-50 rounded-xl">
+                  <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse-dot"></div>
+                  <div>
+                    <p className="font-semibold text-red-700">Connection Error</p>
+                    <p className="text-sm text-red-600">{error}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`health-dot ${isHealthy ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                    <span className={`text-2xl font-bold ${isHealthy ? 'text-green-600' : 'text-red-600'}`}>
+                      {isHealthy ? 'Healthy' : 'Unhealthy'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <p className="text-xs text-gray-500 mb-1">MCP Process</p>
+                      <p className="font-semibold text-sm">{health.mcp_process || 'N/A'}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <p className="text-xs text-gray-500 mb-1">Uptime</p>
+                      <p className="font-semibold text-sm">{health.uptime_seconds ? `${Math.floor(health.uptime_seconds / 3600)}h ${Math.floor((health.uptime_seconds % 3600) / 60)}m` : 'N/A'}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <p className="text-xs text-gray-500 mb-1">API Endpoint</p>
+                      <p className="font-semibold text-sm truncate">{health.redox_api_endpoint || 'N/A'}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <p className="text-xs text-gray-500 mb-1">Next Check</p>
+                      <p className="font-semibold text-sm">{`${minutes}:${String(seconds).padStart(2, '0')}`}</p>
+                    </div>
+                  </div>
+                  {lastChecked && (
+                    <p className="text-xs text-gray-400">Last checked: {lastChecked.toLocaleTimeString()}</p>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="bg-gray-50 px-6 sm:px-8 py-3 border-t border-gray-100">
+              <div className="w-full bg-gray-200 rounded-full h-1">
+                <div className="bg-redox-red h-1 rounded-full transition-all duration-1000" style={{width: `${((HEALTH_INTERVAL_SEC - countdown) / HEALTH_INTERVAL_SEC) * 100}%`}}></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ========== Documentation Section ==========
+    function DocsSection() {
+      const docs = [
+        {
+          title: 'Redox Platform API',
+          description: 'Complete reference for the Redox FHIR API, data models, authentication, and integration patterns.',
+          url: REDOX_DOCS,
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+          ),
+        },
+        {
+          title: 'Redox Engine',
+          description: 'Learn about the Redox healthcare interoperability platform and how it connects EHR systems.',
+          url: REDOX_SITE,
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
+          ),
+        },
+        {
+          title: 'MCP Specification',
+          description: 'Model Context Protocol specification for building AI-integrated tool servers and clients.',
+          url: 'https://modelcontextprotocol.io/',
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+          ),
+        },
+        {
+          title: 'Databricks Apps',
+          description: 'Host and deploy applications on Databricks with native integration to the Data Intelligence Platform.',
+          url: 'https://docs.databricks.com/en/apps/index.html',
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+          ),
+        },
+      ];
+
+      return (
+        <div id="docs" className="scroll-mt-20">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+            <svg className="w-7 h-7 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+            Documentation
+          </h2>
+          <div className="grid sm:grid-cols-2 gap-4">
+            {docs.map((doc, i) => (
+              <a key={i} href={doc.url} target="_blank" rel="noopener noreferrer"
+                 className={`group bg-white rounded-xl p-5 border border-gray-100 hover:border-redox-red/30 hover:shadow-md transition-all animate-fade-in-up delay-${i + 1}`}>
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0 w-10 h-10 bg-redox-light rounded-lg flex items-center justify-center text-redox-red group-hover:bg-redox-red group-hover:text-white transition-colors">
+                    {doc.icon}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 group-hover:text-redox-red transition-colors flex items-center gap-2">
+                      {doc.title}
+                      <svg className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">{doc.description}</p>
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ========== Chat Walkthrough ==========
+    function ChatWalkthrough() {
+      const [copiedIdx, setCopiedIdx] = useState(null);
+
+      const copyPrompt = (text, idx) => {
+        navigator.clipboard.writeText(text).then(() => {
+          setCopiedIdx(idx);
+          setTimeout(() => setCopiedIdx(null), 2000);
+        });
+      };
+
+      return (
+        <div id="examples" className="scroll-mt-20">
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+              <svg className="w-7 h-7 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+              Using the Redox MCP with AI Playground
+            </h2>
+            <p className="text-gray-500 mt-2 max-w-2xl">
+              Follow these steps to interact with the Redox platform through the{' '}
+              <a href={AGENT_URL} target="_blank" rel="noopener noreferrer" className="text-redox-red hover:underline font-medium">
+                Redox Agent
+              </a>. Copy each prompt and paste it into the chat interface.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {CHAT_STEPS.map((step, i) => (
+              <div key={i} className={`chat-step bg-white rounded-xl p-5 sm:p-6 border border-gray-100 hover:shadow-sm transition-all animate-fade-in-up delay-${i + 1}`}>
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0 w-10 h-10 bg-redox-red rounded-full flex items-center justify-center text-white font-bold text-sm">
+                    {step.step}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-lg">{step.title}</h3>
+                    <p className="text-sm text-gray-500 mt-1">{step.description}</p>
+
+                    <div className="mt-3 bg-redox-dark rounded-lg p-3 flex items-center justify-between gap-3">
+                      <code className="text-sm text-white/90 font-mono truncate">{step.prompt}</code>
+                      <button onClick={() => copyPrompt(step.prompt, i)}
+                              className="flex-shrink-0 text-white/60 hover:text-white transition-colors p-1">
+                        {copiedIdx === i ? (
+                          <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                        )}
+                      </button>
+                    </div>
+
+                    {step.tip && (
+                      <div className="mt-3 flex items-start gap-2 text-sm text-amber-700 bg-amber-50 rounded-lg p-3">
+                        <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        {step.tip}
+                      </div>
+                    )}
+
+                    {step.linkUrl && (
+                      <a href={step.linkUrl} target="_blank" rel="noopener noreferrer"
+                         className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-redox-red hover:text-red-700 transition-colors">
+                        {step.linkLabel}
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ========== Best Practices ==========
+    function BestPractices() {
+      const practices = [
+        {
+          title: 'Secure Secret Management',
+          description: 'Store Redox OAuth credentials (client ID, private keys) in Databricks Secret Scopes. Never embed secrets in source code or environment variables directly. Use DABs secret_scope resources for automated provisioning.',
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+          ),
+        },
+        {
+          title: 'Binary Volume Storage',
+          description: 'Host the MCP binary in a Unity Catalog Volume with READ_VOLUME permissions. This provides versioned, governed storage with audit trails. The FastAPI proxy downloads and caches the binary at startup.',
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+          ),
+        },
+        {
+          title: 'HTTP-to-stdio Proxy Pattern',
+          description: 'Wrap stdio-based MCP servers with a FastAPI HTTP proxy for deployment as a Databricks App. This pattern enables web-accessible MCP endpoints while preserving the native MCP binary protocol. SSE support enables streaming responses.',
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+          ),
+        },
+        {
+          title: 'Health Monitoring & Auto-Recovery',
+          description: 'Implement health check endpoints (/api/v1/health) with process monitoring. The proxy automatically restarts the MCP process on failure with configurable retry limits and delays. Integrate with Databricks monitoring for alerting.',
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+          ),
+        },
+        {
+          title: 'Deploy with Asset Bundles',
+          description: 'Use Databricks Asset Bundles (DABs) for reproducible, multi-environment deployments. Define app resources, secret scopes, volumes, and schemas in YAML. Supports dev/staging/prod targets with variable overrides.',
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+          ),
+        },
+        {
+          title: 'CORS & Protocol Handling',
+          description: 'Configure CORS middleware for cross-origin access from AI Playground and other Databricks interfaces. Support both JSON-RPC and SSE response formats. Implement OPTIONS handlers advertising MCP server capabilities.',
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          ),
+        },
+      ];
+
+      return (
+        <div id="best-practices" className="scroll-mt-20">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+            <svg className="w-7 h-7 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+            Best Practices for External MCP on Databricks
+          </h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {practices.map((p, i) => (
+              <div key={i} className={`bg-white rounded-xl p-5 border border-gray-100 hover:border-redox-red/20 hover:shadow-sm transition-all animate-fade-in-up delay-${(i % 6) + 1}`}>
+                <div className="w-10 h-10 bg-redox-light rounded-lg flex items-center justify-center text-redox-red mb-3">
+                  {p.icon}
+                </div>
+                <h3 className="font-semibold text-gray-900 mb-2">{p.title}</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">{p.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ========== Architecture Diagram ==========
+    function ArchitectureDiagram() {
+      return (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+            <svg className="w-6 h-6 text-redox-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" /></svg>
+            Architecture
+          </h2>
+          <div className="bg-redox-dark rounded-xl p-6 text-white font-mono text-sm overflow-x-auto">
+            <pre className="leading-relaxed">{`
+  ┌─────────────────────────────────────────────────────────┐
+  │                   Databricks App                        │
+  │                                                         │
+  │  ┌───────────────────┐     ┌──────────────────────┐    │
+  │  │   React Frontend  │     │  FastAPI HTTP Proxy   │    │
+  │  │   (This Page)     │────▶│  /api/v1/* endpoints  │    │
+  │  │                   │     │  /mcp, /messages      │    │
+  │  └───────────────────┘     └──────────┬───────────┘    │
+  │                                       │ stdio           │
+  │                            ┌──────────▼───────────┐    │
+  │                            │   Redox MCP Binary    │    │
+  │                            │   (from UC Volume)    │    │
+  │                            └──────────┬───────────┘    │
+  └───────────────────────────────────────┼─────────────────┘
+                                          │ HTTPS
+                              ┌───────────▼──────────┐
+                              │   Redox Platform API  │
+                              │  api.redoxengine.com  │
+                              └──────────────────────┘
+            `}</pre>
+          </div>
+        </div>
+      );
+    }
+
+    // ========== Footer ==========
+    function Footer() {
+      return (
+        <footer className="bg-redox-dark text-white/60 py-12 px-4 sm:px-6 lg:px-8 mt-16">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+              <div className="flex items-center gap-4">
+                <RedoxLogo className="h-6 w-auto" color="#E63B2E" />
+                <span className="text-white/30">+</span>
+                <img src={DBX_LOGO} alt="Databricks" className="h-7 w-7" />
+              </div>
+              <div className="flex items-center gap-6 text-sm">
+                <a href={REDOX_SITE} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Redox Engine</a>
+                <a href={REDOX_DOCS} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">API Docs</a>
+                <a href="https://www.databricks.com" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Databricks</a>
+                <a href={AGENT_URL} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Redox Agent</a>
+              </div>
+            </div>
+            <div className="mt-8 pt-6 border-t border-white/10 text-center text-xs text-white/40">
+              Redox MCP Server on Databricks &mdash; Healthcare Interoperability powered by the Data Intelligence Platform
+            </div>
+          </div>
+        </footer>
+      );
+    }
+
+    // ========== Main App ==========
+    function App() {
+      return (
+        <div className="min-h-screen">
+          <Header />
+          <Hero />
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-16">
+            <HealthCard />
+            <ArchitectureDiagram />
+            <DocsSection />
+            <ChatWalkthrough />
+            <BestPractices />
+          </main>
+          <Footer />
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
