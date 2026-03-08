@@ -55,7 +55,6 @@
     const ZEROBUS_URL = 'https://fhir-zerobus-ingest-himss2026-7474657999482942.aws.databricksapps.com';
     const DBX_LOGO = 'https://cdn.bfldr.com/9AYANS2F/at/b87x34rfnrgcfjvg93pt83x/databricks-symbol-light.svg?auto=webp';
     const REDOX_LOGO_WHITE = 'https://www.battery.com/wp-content/uploads/2021/03/Redox_Website_White.png';
-    const REDOX_LOGO_COLOR = 'https://www.battery.com/wp-content/uploads/2021/03/Redox_Website_Color.png';
 
     const CHAT_STEPS = [
       {
@@ -104,17 +103,6 @@
       },
     ];
 
-    // ========== Redox Logo SVG ==========
-    function RedoxLogo({ className = '', color = '#00C389' }) {
-      return (
-        <svg className={className} viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <text x="0" y="25" fontFamily="Inter, system-ui, sans-serif" fontWeight="800" fontSize="28" fill={color} letterSpacing="-1">
-            redox
-          </text>
-        </svg>
-      );
-    }
-
     // ========== Header ==========
     function Header() {
       const [scrolled, setScrolled] = useState(false);
@@ -129,7 +117,7 @@
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
               <div className="flex items-center gap-3">
-                <img src={REDOX_LOGO_WHITE} alt="Redox Engine" className="h-7 w-auto object-contain" />
+                <img src={REDOX_LOGO_WHITE} alt="Redox Engine" className="h-8 w-auto object-contain" />
                 <span className="text-white/40 text-sm font-light">|</span>
                 <span className="text-white/70 text-sm font-medium">MCP Server</span>
               </div>
@@ -173,7 +161,7 @@
               </h1>
               <p className="text-lg sm:text-xl text-white/70 mb-8 leading-relaxed max-w-2xl">
                 Access the Redox healthcare interoperability platform through the Model Context Protocol.
-                Query organizations, environments, destinations, and send test data — all through conversational AI.
+                Query organizations, environments, destinations, and send test data \u2014 all through conversational AI.
               </p>
               <div className="flex flex-wrap gap-4">
                 <a href={AGENT_URL} target="_blank" rel="noopener noreferrer"
@@ -523,25 +511,25 @@
           </h2>
           <div className="bg-redox-dark rounded-xl p-6 text-white font-mono text-sm overflow-x-auto">
             <pre className="leading-relaxed">{`
-  ┌─────────────────────────────────────────────────────────┐
-  │                   Databricks App                        │
-  │                                                         │
-  │  ┌───────────────────┐     ┌──────────────────────┐    │
-  │  │   React Frontend  │     │  FastAPI HTTP Proxy   │    │
-  │  │   (This Page)     │────▶│  /api/v1/* endpoints  │    │
-  │  │                   │     │  /mcp, /messages      │    │
-  │  └───────────────────┘     └──────────┬───────────┘    │
-  │                                       │ stdio           │
-  │                            ┌──────────▼───────────┐    │
-  │                            │   Redox MCP Binary    │    │
-  │                            │   (from UC Volume)    │    │
-  │                            └──────────┬───────────┘    │
-  └───────────────────────────────────────┼─────────────────┘
-                                          │ HTTPS
-                              ┌───────────▼──────────┐
-                              │   Redox Platform API  │
-                              │  api.redoxengine.com  │
-                              └──────────────────────┘
+  \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  \u2502                   Databricks App                        \u2502
+  \u2502                                                         \u2502
+  \u2502  \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510     \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510    \u2502
+  \u2502  \u2502   React Frontend  \u2502     \u2502  FastAPI HTTP Proxy   \u2502    \u2502
+  \u2502  \u2502   (This Page)     \u2502\u2500\u2500\u2500\u2500\u25B6\u2502  /api/v1/* endpoints  \u2502    \u2502
+  \u2502  \u2502                   \u2502     \u2502  /mcp, /messages      \u2502    \u2502
+  \u2502  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518     \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518    \u2502
+  \u2502                                       \u2502 stdio           \u2502
+  \u2502                            \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25BC\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510    \u2502
+  \u2502                            \u2502   Redox MCP Binary    \u2502    \u2502
+  \u2502                            \u2502   (from UC Volume)    \u2502    \u2502
+  \u2502                            \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518    \u2502
+  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+                                          \u2502 HTTPS
+                              \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25BC\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+                              \u2502   Redox Platform API  \u2502
+                              \u2502  api.redoxengine.com  \u2502
+                              \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
             `}</pre>
           </div>
         </div>
@@ -555,7 +543,7 @@
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
               <div className="flex items-center gap-4">
-                <img src={REDOX_LOGO_WHITE} alt="Redox Engine" className="h-6 w-auto object-contain" />
+                <img src={REDOX_LOGO_WHITE} alt="Redox Engine" className="h-7 w-auto object-contain" />
                 <span className="text-white/30">+</span>
                 <img src={DBX_LOGO} alt="Databricks" className="h-7 w-7" />
               </div>
