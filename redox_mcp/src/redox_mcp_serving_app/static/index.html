@@ -54,7 +54,8 @@
     const AGENT_URL = 'https://agent-redox-7474657999482942.aws.databricksapps.com';
     const ZEROBUS_URL = 'https://fhir-zerobus-ingest-himss2026-7474657999482942.aws.databricksapps.com';
     const DBX_LOGO = 'https://cdn.bfldr.com/9AYANS2F/at/b87x34rfnrgcfjvg93pt83x/databricks-symbol-light.svg?auto=webp';
-    const REDOX_LOGO = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRtd-1IDDaF0cqQniM-imLDu_978EX_65jBBQ&s';
+    const REDOX_LOGO_WHITE = 'https://www.battery.com/wp-content/uploads/2021/03/Redox_Website_White.png';
+    const REDOX_LOGO_COLOR = 'https://www.battery.com/wp-content/uploads/2021/03/Redox_Website_Color.png';
 
     const CHAT_STEPS = [
       {
@@ -128,7 +129,7 @@
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
               <div className="flex items-center gap-3">
-                <img src={REDOX_LOGO} alt="Redox Engine" className="h-7 w-auto object-contain" />
+                <img src={REDOX_LOGO_WHITE} alt="Redox Engine" className="h-7 w-auto object-contain" />
                 <span className="text-white/40 text-sm font-light">|</span>
                 <span className="text-white/70 text-sm font-medium">MCP Server</span>
               </div>
@@ -554,7 +555,7 @@
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
               <div className="flex items-center gap-4">
-                <img src={REDOX_LOGO} alt="Redox Engine" className="h-6 w-auto object-contain" />
+                <img src={REDOX_LOGO_WHITE} alt="Redox Engine" className="h-6 w-auto object-contain" />
                 <span className="text-white/30">+</span>
                 <img src={DBX_LOGO} alt="Databricks" className="h-7 w-7" />
               </div>
