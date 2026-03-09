@@ -1,0 +1,114 @@
+bundle:
+  name: agent-redox-openai-sdk
+
+variables:
+  catalog:
+    description: The catalog to use
+  schema:
+    description: The schema to use
+  run_as_user:
+    description: The User that the workflows should run as.
+  higher_level_service_principal:
+    description: The service principal name (application ID) for higher level deployments.  Comment this out if you are not using a service_principal for deployments above the dev target.
+    default: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
+  serverless_environment_version:
+    description: The serverless environment for which to run the workflows, notebook tasks, etc.
+    default: 4
+  dashboard_embed_credentials:
+    description: Set to true if the dashboard should use the owner's credentials, or false if the user's credentials should be used to run the dashboard and access Unity Catalog assets.
+    default: false
+  tags_project:
+    default: Open Epic Smart on FHIR
+    description: Project tag to use for deployed resources.
+  tags_businessUnit:
+    default: Healthcare and Life Sciences
+    description: Business Unit tag to use for deployed resource cost and ROI allocation.
+  tags_developer:
+    default: matthew.giglia@databricks.com
+    description: Primary developer for Ops contact.
+  tags_requestedBy:
+    default: Healthcare Providers and Health Plans
+    description: Tag for the primary business unit stakeholder(s).
+  tags_RemoveAfter:
+    default: 2027-02-25
+    description: Required Databricks demo environment tag for long lived demos.  Can not be set more than one year after the deployment date.
+
+resources:
+  experiments:
+    redox_agent_experiment:
+      name: "/Workspace/.experiments/${bundle.name}/${bundle.target}"
+      permissions:
+        - level: CAN_MANAGE
+          user_name: matthew.giglia@databricks.com
+
+  apps:
+    redox_agent_app:
+      name: "agent-redox-openai"
+      description: "Databricks Agent trained to use the Redox MCP Server"
+      source_code_path: ./
+      config:
+        command: ["uv", "run", "start-app"]
+        env:
+          - name: MLFLOW_TRACKING_URI
+            value: "databricks"
+          - name: MLFLOW_REGISTRY_URI
+            value: "databricks-uc"
+          - name: API_PROXY
+            value: "http://localhost:8000/invocations"
+          - name: CHAT_APP_PORT
+            value: "3000"
+          - name: CHAT_PROXY_TIMEOUT_SECONDS
+            value: "300"
+          - name: MLFLOW_EXPERIMENT_ID
+            value_from: "experiment"
+
+      # Resources which this app has access to
+      resources:
+        - name: 'experiment'
+          experiment:
+            experiment_id: ${resources.experiments.redox_agent_experiment.id}
+            permission: 'CAN_MANAGE'
+
+targets:
+  dev:
+    mode: development
+    default: true
+    # workspace:
+    #   host: https://...
+
+  prod:
+    mode: production
+    # workspace:
+    #   host: https://...
+    resources:
+      apps:
+        redox_agent_app:
+          name: agent-redox-openai-prod
+
+  # The 'himss2026' target, used for HIMSS 2026 demo deployment.
+  himss2026:
+    mode: production
+    presets:
+      source_linked_deployment: false
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+    workspace:
+      host: https://fe-sandbox-himss2026.cloud.databricks.com
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    # run_as:
+    #   user_name: ${var.run_as_user}
+    variables:
+      catalog: himss
+      schema: redox
+      higher_level_service_principal: aa7772ac-75bc-4f18-8dee-d58e50a11cd0
+      run_as_user: ${var.higher_level_service_principal}
+    permissions:
+      - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
+      - group_name: users
+        level: CAN_RUN
