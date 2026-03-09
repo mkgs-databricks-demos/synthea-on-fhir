@@ -1,5 +1,5 @@
 bundle:
-  name: agent-redox-openai-sdk
+  name: agent-redox-openai
 
 variables:
   catalog:
