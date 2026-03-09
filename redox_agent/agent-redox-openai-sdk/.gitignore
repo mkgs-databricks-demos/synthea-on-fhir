@@ -125,6 +125,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv/
 env/
 venv/
 ENV/
@@ -218,3 +219,23 @@ sketch
 
 **/.env
 **/.env.local
+
+# ============================================================================
+# uv / local dev runtime artifacts
+# ============================================================================
+# uv virtual environment (thousands of site-packages files)
+.venv/**
+
+# uv cache
+.uv/
+
+# Cloned frontend app (created by `uv run start-app`)
+e2e-chatbot-app-next/
+temp-app-templates/
+
+# Runtime logs from start_app.py
+backend.log
+frontend.log
+
+# Databricks Asset Bundles build state
+.bundle/
