@@ -36,7 +36,7 @@ variables:
 resources:
   experiments:
     redox_agent_experiment:
-      name: "/Workspace/.experiments/${bundle.name}/${bundle.target}"
+      name: "/Workspace/.experiments/${bundle.name}-${bundle.target}"
       permissions:
         - level: CAN_MANAGE
           user_name: matthew.giglia@databricks.com
