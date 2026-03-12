@@ -1,6 +1,7 @@
 # This is a Databricks asset bundle definition for fhir_zerobus.
 # See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
 # 7474657999482942.zerobus.us-east-1.cloud.databricks.com
+# 14851577059500.zerobus.us-east-1.cloud.databricks.com
 bundle:
   name: fhir_zerobus
   uuid: 46a9d417-3ce9-479a-b090-1b48b0b87184
@@ -132,8 +133,13 @@ targets:
       schema: redox
       higher_level_service_principal: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
       run_as_user: ${var.higher_level_service_principal}
+      zerobus_service_principal: 698aa3e0-d089-495b-b857-35d9d20a6708
     permissions:
       - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
+      - group_name: users
+        level: CAN_RUN
+      - service_principal_name: ${var.run_as_user}
         level: CAN_MANAGE
   
   # Used for the HIMSS 2026 Booth Demos
