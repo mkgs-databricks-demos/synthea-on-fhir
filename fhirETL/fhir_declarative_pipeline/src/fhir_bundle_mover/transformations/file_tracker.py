@@ -39,7 +39,7 @@ def move_file_udf(file_path: str, content: bytes, dest_base: str) -> dict:
         file_size_bytes LONG COMMENT 'Size of the source file in bytes',
         binary_content BINARY COMMENT 'File content as binary data',
         file_moved BOOLEAN NOT NULL COMMENT 'True if file was successfully written to destination volume',
-        new_path STRING COMMENT 'Full destination path when file_moved is true, null otherwise',
+        destination_path STRING COMMENT 'Full destination path when file_moved is true, null otherwise',
         message STRING COMMENT 'Error details or SKIPPED reason when file_moved is false, null on success',
         source_modified_at TIMESTAMP COMMENT 'Last modification timestamp of the source file',
         moved_at TIMESTAMP NOT NULL COMMENT 'Timestamp when this move operation was executed'
@@ -74,7 +74,7 @@ def file_tracker():
             col("length").alias("file_size_bytes"),
             col("content").alias("binary_content"),
             col("move_result.file_moved").alias("file_moved"),
-            col("move_result.new_path").alias("new_path"),
+            col("move_result.new_path").alias("destination_path"),
             col("move_result.message").alias("message"),
             col("modificationTime").alias("source_modified_at"),
             current_timestamp().alias("moved_at"),
