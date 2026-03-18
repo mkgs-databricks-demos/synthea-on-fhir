@@ -34,7 +34,7 @@ def move_file_udf(file_path: str, content: bytes, dest_base: str) -> dict:
         "Each row represents a file move attempt with success/failure status."
     ),
     schema="""
-        file_hash STRING NOT NULL PRIMARY KEY COMMENT 'SHA-256 hash of source_path — deterministic primary key',
+        file_hash STRING NOT NULL PRIMARY KEY COMMENT 'SHA-256 hash of source_path \u2014 deterministic primary key',
         source_path STRING NOT NULL COMMENT 'Original file path in the source volume',
         file_size_bytes LONG COMMENT 'Size of the source file in bytes',
         binary_content BINARY COMMENT 'File content as binary data',
@@ -59,6 +59,8 @@ def file_tracker():
     df_stream = (
         spark.readStream.format("cloudFiles")
         .option("cloudFiles.format", "binaryFile")
+        .option("cloudFiles.cleanSource", "DELETE")
+        .option("cloudFiles.cleanSource.retentionDuration", "14 days")
         .load(source_path)
     )
 
