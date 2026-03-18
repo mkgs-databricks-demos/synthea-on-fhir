@@ -91,6 +91,12 @@ targets:
     workspace:
       host: https://fevm-hls-fde.cloud.databricks.com
       root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    resources:
+      volumes:
+        landing_volume:
+          name: ${var.landing_volume}
+          catalog_name: ${var.catalog}
+          schema_name: ${var.schema_resolved}
     # run_as:
     #   user_name: ${var.run_as_user}
     variables:
