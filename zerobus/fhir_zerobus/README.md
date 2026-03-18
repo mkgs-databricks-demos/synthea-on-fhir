@@ -173,6 +173,12 @@ curl -X POST "https://<app-url>/api/v1/ingest/fhir-bundle" \
 * [Zerobus SDK Documentation](https://docs.databricks.com/ingestion/zerobus/)
 * [Unity Catalog Documentation](https://docs.databricks.com/data-governance/unity-catalog/)
 
+## OAuth Token Check
+curl --request POST \
+  --url https://fe-vm-mkgs-databricks-demos.cloud.databricks.com/oidc/v1/token \
+  --user "$CLIENT_ID:$CLIENT_SECRET" \
+  --data 'grant_type=client_credentials&scope=all-apis'
+
 ## Support
 
 * **Primary Developer**: matthew.giglia@databricks.com
