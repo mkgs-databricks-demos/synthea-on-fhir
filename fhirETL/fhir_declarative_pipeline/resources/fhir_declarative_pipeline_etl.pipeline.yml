@@ -1,20 +1,64 @@
-# The main pipeline for fhir_declarative_pipeline
+# FHIR Bundle Resource Parsing ETL pipeline.
+#
+# Parses and transforms FHIR bundle resources into structured Delta tables.
+# Reads landed FHIR bundles from the landing volume via Auto Loader, ingests
+# them as text (fhir_bronze) and VARIANT (fhir_bronze_variant), then extracts
+# bundle metadata (bundle_meta), explodes entry resources (fhir_resources),
+# and infers schemas (fhir_resource_schemas).
+#
+# Silver tables are dynamically generated per FHIR resource type (e.g. Patient,
+# Encounter, Condition) by PIVOTing the exploded key-value pairs into individual
+# VARIANT columns. Resource types are discovered from fhir_resource_schemas on
+# subsequent runs (two-pass: first run populates bronze/resources, second run
+# creates silver tables).
 
 resources:
   pipelines:
     fhir_declarative_pipeline_etl:
-      name: fhir_declarative_pipeline_etl
+      name: FHIR Bundle Resource Parsing ETL
       catalog: ${var.catalog}
-      schema: ${var.schema}
+      schema: ${var.schema_resolved}
       serverless: true
+      channel: "CURRENT"
+      continuous: false
+      edition: "ADVANCED"
       root_path: "../src/fhir_declarative_pipeline_etl"
 
       libraries:
         - glob:
             include: ../src/fhir_declarative_pipeline_etl/transformations/**
 
+      configuration:
+        pipeline.landing_volume_path: "/Volumes/${var.catalog}/${var.schema_resolved}/${var.landing_volume}"
+        pipeline.catalog_use: "${var.catalog}"
+        pipeline.schema_use: "${var.schema_resolved}"
+
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${var.schema_resolved}
+        name: fhir_declarative_pipeline_etl_event_log
+
+      notifications:
+        - email_recipients:
+            - matthew.giglia@databricks.com
+          alerts:
+            - on-update-success
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+
+      permissions:
+        - user_name: matthew.giglia@databricks.com
+          level: CAN_MANAGE
+
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+
       environment:
         dependencies:
-          # We include every dependency defined by pyproject.toml by defining an editable environment
-          # that points to the folder where pyproject.toml is deployed.
           - --editable ${workspace.file_path}
