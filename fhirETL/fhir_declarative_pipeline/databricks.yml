@@ -37,7 +37,7 @@ variables:
     default: Healthcare Providers and Health Plans
     description: Tag for the primary business unit stakeholder(s).
   tags_RemoveAfter:
-    default: 2027-03-04
+    default: 2027-03-14
     description: Required Databricks demo environment tag for long lived demos. Can not be set more than one year after the deployment date.
 
 targets:
