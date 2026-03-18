@@ -1,0 +1,22 @@
+# Pipeline for moving FHIR bundles from source volume to landing volume
+
+resources:
+  pipelines:
+    fhir_bundle_mover:
+      name: fhir_bundle_mover
+      catalog: ${var.catalog}
+      schema: ${var.schema_resolved}
+      serverless: true
+      root_path: "../src/fhir_bundle_mover"
+
+      libraries:
+        - glob:
+            include: ../src/fhir_bundle_mover/transformations/**
+
+      configuration:
+        pipeline.source_volume_path: "/Volumes/hls_fde/synthea_data_gen/synthetic_files_raw/output/fhir/"
+        pipeline.dest_volume_path: "/Volumes/${var.catalog}/${var.schema_resolved}/${var.landing_volume}"
+
+      environment:
+        dependencies:
+          - --editable ${workspace.file_path}
