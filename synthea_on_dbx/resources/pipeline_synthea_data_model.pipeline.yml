@@ -17,7 +17,6 @@ resources:
         - glob:
             include: ../pipelines/transformations/encounters.sql
       schema: ${resources.schemas.data_gen_schema.name}
-      development: true
       photon: true
       channel: PREVIEW
       catalog: ${var.catalog}

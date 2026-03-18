@@ -92,6 +92,45 @@ targets:
       # run_as_user_permissions: ["CAN_MANAGE", "CAN_RUN", "CAN_MANAGE_RUN"]
       # user_permissions: ["CAN_READ", "CAN_VIEW"]
 
+  hls_fde:
+    # The default target uses 'mode: development' to create a development copy.
+    # - Deployed resources get prefixed with '[dev my_user_name]'
+    # - Any job schedules and triggers are paused by default.
+    # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
+    mode: production
+    presets:
+      # name_prefix: '[${bundle.target} ${workspace.current_user.short_name}] '
+      source_linked_deployment: false
+      trigger_pause_status: PAUSED
+      jobs_max_concurrent_runs: 1
+      pipelines_development: false
+      tags:
+        parentProject: ${var.tags_parentProject}
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+    default: false
+    workspace:
+      host: https://fevm-hls-fde.cloud.databricks.com/
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
+      - group_name: users
+        level: CAN_VIEW
+    variables:
+      catalog: hls_fde
+      schema: synthea_data_gen
+      notifications: []
+      higher_level_service_principal: acf021b4-87c6-44ff-b3d7-45c59d63fe4d
+      run_as_user: ${var.higher_level_service_principal}
+      serverless_environment_version: "5"
+      # run_as_user_permissions: ["CAN_MANAGE", "CAN_RUN", "CAN_MANAGE_RUN"]
+      # user_permissions: ["CAN_READ", "CAN_VIEW"]
+
   
   prod:
     presets:
