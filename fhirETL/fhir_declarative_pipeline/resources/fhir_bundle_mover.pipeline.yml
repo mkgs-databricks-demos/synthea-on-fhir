@@ -1,4 +1,15 @@
-# Pipeline for moving FHIR bundles from source volume to landing volume
+# Pipeline for moving FHIR bundles from source volume to landing volume.
+#
+# Uses Auto Loader (cloudFiles with binaryFile format) to incrementally detect new
+# FHIR bundle files in the source volume. A Spark UDF distributes the file writes
+# across the cluster, copying each file to the destination landing volume via the
+# /Volumes FUSE mount. Results are tracked in the `file_tracker` streaming table,
+# which records the source path, destination path, file size, and move status for
+# each file. Files already present in the destination are skipped.
+#
+# Re-running the pipeline only processes new files (Auto Loader checkpoint handles
+# deduplication). A full refresh reprocesses all source files but skips existing
+# destination files unless they have been removed.
 
 resources:
   pipelines:

@@ -1,32 +1,69 @@
-# A sample job for fhir_declarative_pipeline.
+# Job to execute the fhir_bundle_mover pipeline.
+# Triggered by file arrival in the source volume, or manually with full_refresh override.
 
 resources:
   jobs:
-    sample_job:
-      name: sample_job
+    fhir_bundle_mover:
+      name: FHIR Bundle Mover
+      description: >
+        Moves FHIR bundle files from a source volume to a destination landing volume
+        using the fhir_bundle_mover declarative pipeline. Automatically triggered when
+        new files arrive in the source volume. Defaults to incremental refresh, processing
+        only new files via Auto Loader. Set the full_refresh job parameter to "true" to
+        reprocess all source files and overwrite the file_tracker streaming table.
 
+      # Trigger on new FHIR bundle files arriving in the source volume
       trigger:
-        # Run this job every day, exactly one day from the last run; see https://docs.databricks.com/api/workspace/jobs/create#trigger
-        periodic:
-          interval: 1
-          unit: DAYS
+        file_arrival:
+          url: /Volumes/${var.catalog}/synthea_data_gen/synthetic_files_raw/output/fhir/
+          min_time_between_triggers_seconds: 60
+          wait_after_last_change_seconds: 30
 
-      #email_notifications:
-      #  on_failure:
-      #    - your_email@example.com
+      email_notifications:
+        on_failure:
+          - ${var.tags_developer}
+
+      # run_as:
+      #   user_name: ${var.run_as_user}
 
       parameters:
-        - name: catalog
-          default: ${var.catalog}
-        - name: schema
-          default: ${var.schema}
+        - name: full_refresh
+          default: "false"
+
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+
+      permissions:
+        - user_name: matthew.giglia@databricks.com
+          level: CAN_MANAGE
 
       tasks:
-        - task_key: refresh_pipeline
-          pipeline_task:
-            pipeline_id: ${resources.pipelines.fhir_declarative_pipeline_etl.id}
+        # Task 1: Evaluate the full_refresh job parameter
+        - task_key: check_full_refresh
+          condition_task:
+            op: EQUAL_TO
+            left: "{{job.parameters.full_refresh}}"
+            right: "true"
 
-      environments:
-        - environment_key: default
-          spec:
-            environment_version: "4"
+        # Task 2: Incremental refresh — runs when full_refresh != "true"
+        - task_key: incremental_refresh
+          depends_on:
+            - task_key: check_full_refresh
+              outcome: "false"
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.fhir_bundle_mover.id}
+            full_refresh: false
+
+        # Task 3: Full refresh — runs when full_refresh == "true"
+        - task_key: full_refresh_pipeline
+          depends_on:
+            - task_key: check_full_refresh
+              outcome: "true"
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.fhir_bundle_mover.id}
+            full_refresh: true
