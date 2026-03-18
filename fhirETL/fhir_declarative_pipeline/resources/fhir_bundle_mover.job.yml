@@ -3,7 +3,7 @@
 
 resources:
   jobs:
-    fhir_bundle_mover:
+    fhir_bundle_mover_job:
       name: FHIR Bundle Mover
       description: >
         Moves FHIR bundle files from a source volume to a destination landing volume
@@ -16,8 +16,8 @@ resources:
       trigger:
         file_arrival:
           url: /Volumes/${var.catalog}/synthea_data_gen/synthetic_files_raw/output/fhir/
-          min_time_between_triggers_seconds: 60
-          wait_after_last_change_seconds: 30
+          min_time_between_triggers_seconds: 300
+          wait_after_last_change_seconds: 120
 
       email_notifications:
         on_failure:
