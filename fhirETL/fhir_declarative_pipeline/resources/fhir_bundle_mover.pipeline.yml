@@ -14,7 +14,7 @@
 resources:
   pipelines:
     fhir_bundle_mover:
-      name: fhir_bundle_mover
+      name: Streaming FHIR Bundle Mover
       catalog: ${var.catalog}
       schema: ${var.schema_resolved}
       serverless: true
