@@ -10,7 +10,7 @@ include:
   - resources/*.secret_scope.yml
   - resources/*.job.yml
   - resources/*.app.yml
-  - resources/*.pipeline.yml
+  # - resources/*.pipeline.yml
   # - resources/*/*.yml
 
 # Variable declarations. These variables are assigned in the dev/prod targets below.
@@ -111,6 +111,7 @@ targets:
         level: CAN_MANAGE
 
   hls_fde:
+    # zerobus endpoint: 7474657291520070.zerobus.us-east-1.cloud.databricks.com
     mode: production
     presets:
       source_linked_deployment: false
