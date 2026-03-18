@@ -80,7 +80,7 @@ resources:
             - task_key: set_configuration
           run_if: AT_LEAST_ONE_SUCCESS
           notebook_task:
-            notebook_path: ../src/1.0-synthea-data-generator.py
+            notebook_path: ../src/1.0-synthea-data-generator.ipynb
           environment_key: primary
         
         # - task_key: inject_bad_date
