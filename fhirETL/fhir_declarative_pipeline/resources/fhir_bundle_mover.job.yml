@@ -16,8 +16,8 @@ resources:
       trigger:
         file_arrival:
           url: /Volumes/${var.catalog}/synthea_data_gen/synthetic_files_raw/output/fhir/
-          min_time_between_triggers_seconds: 300
-          wait_after_last_change_seconds: 120
+          min_time_between_triggers_seconds: 600
+          wait_after_last_change_seconds: 60
 
       email_notifications:
         on_failure:
