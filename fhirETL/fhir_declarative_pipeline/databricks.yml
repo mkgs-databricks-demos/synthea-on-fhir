@@ -28,6 +28,7 @@ targets:
     variables:
       catalog: hls_fde
       schema: dev
+
   prod:
     mode: production
     workspace:
