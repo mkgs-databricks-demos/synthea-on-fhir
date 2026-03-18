@@ -14,6 +14,11 @@ variables:
     description: The catalog to use
   schema:
     description: The schema to use
+  schema_resolved:
+    description: The schema, as its resolved from the target
+  landing_volume: 
+    description: The name of the volume for landing the FHIR bundles
+    default: landing
 
 targets:
   dev:
@@ -25,9 +30,21 @@ targets:
     default: true
     workspace:
       host: https://fevm-hls-fde.cloud.databricks.com
+    resources:
+      schemas:
+        fhir_schema:
+          name: ${var.schema}
+          catalog_name: ${var.catalog}
+          comment: Development version of the FHIR schema for ${workspace.current_user.short_name}
+      volumes:
+        landing_volume:
+          name: ${var.landing_volume}
+          catalog_name: ${var.catalog}
+          schema_name: ${var.schema_resolved}
     variables:
       catalog: hls_fde
-      schema: dev
+      schema: fhir
+      schema_resolved: ${bundle.target}_${workspace.current_user.short_name}_${var.schema}
 
   prod:
     mode: production
