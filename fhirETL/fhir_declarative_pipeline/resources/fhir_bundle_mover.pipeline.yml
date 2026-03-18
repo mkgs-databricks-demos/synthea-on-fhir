@@ -7,6 +7,9 @@ resources:
       catalog: ${var.catalog}
       schema: ${var.schema_resolved}
       serverless: true
+      channel: "CURRENT"
+      continuous: false
+      edition: "ADVANCED"
       root_path: "../src/fhir_bundle_mover"
 
       libraries:
@@ -14,8 +17,34 @@ resources:
             include: ../src/fhir_bundle_mover/transformations/**
 
       configuration:
-        pipeline.source_volume_path: "/Volumes/hls_fde/synthea_data_gen/synthetic_files_raw/output/fhir/"
+        pipeline.source_volume_path: "/Volumes/${var.catalog}/synthea_data_gen/synthetic_files_raw/output/fhir/"
         pipeline.dest_volume_path: "/Volumes/${var.catalog}/${var.schema_resolved}/${var.landing_volume}"
+
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${var.schema_resolved}
+        name: fhir_bundle_mover_event_log
+
+      notifications:
+        - email_recipients:
+            - matthew.giglia@databricks.com
+          alerts:
+            - on-update-success
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+
+      permissions:
+        - user_name: matthew.giglia@databricks.com
+          level: CAN_MANAGE
+
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
 
       environment:
         dependencies:
