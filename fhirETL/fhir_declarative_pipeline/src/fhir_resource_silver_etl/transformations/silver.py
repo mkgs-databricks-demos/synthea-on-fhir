@@ -1,17 +1,28 @@
 """Dynamic silver table generation for FHIR resource types.
 
-Architecture (two-table pattern per resource type):
+Architecture (three-step pattern per resource type):
 
     fhir_resources
-        -> {resource_type}_raw   (PIVOT, all columns VARIANT)
-        -> {resource_type}       (CAST each column to its inferred type)
+        -> {resource_type}_raw   (PRIVATE streaming table: PIVOT, all columns VARIANT)
+        -> {resource_type}_typed (Temporary view: CAST each column to its inferred type)
+        -> {resource_type}       (Target streaming table: Auto CDC Type 1 upserts)
 
-The intermediate _raw table isolates the PIVOT from the CAST so that:
-  - Column ordering is consistent (alphabetically sorted keys).
-  - Schema evolution is cleanly handled: when fhir_resource_schemas is updated
-    with new columns or changed struct types, the table definitions change on
-    the next pipeline run. DLT detects this and triggers a full refresh
-    (pipelines.reset.allowed = true).
+The private _raw table is append-only and pipeline-internal (not published to the
+catalog). It isolates the PIVOT step and adds a _processing_time column for CDC
+sequencing.
+
+The _typed temporary view performs the VARIANT-to-typed CAST and serves as the
+source for the Auto CDC flow.
+
+The final silver table is a target streaming table that receives SCD Type 1
+(upsert/overwrite) changes via create_auto_cdc_flow. This means:
+  - New resources are inserted.
+  - Updated resources overwrite existing rows (matched by {resource_type}_uuid).
+  - Ordering is determined by _processing_time.
+
+Schema evolution is handled automatically: when new columns or changed struct
+types appear in fhir_resource_schemas, the table definitions change and DLT
+triggers a full refresh (pipelines.reset.allowed = true).
 
 Why SQL CAST instead of a UDF:
   Spark UDFs have fixed return types, so a single UDF cannot dynamically cast
@@ -27,6 +38,7 @@ Two-pass behavior:
 """
 
 from pyspark import pipelines as dp
+from pyspark.sql.functions import col
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +155,7 @@ def _build_schema_ddl(columns: list[dict], resource_type: str) -> str:
 # Dynamic table generation
 # ---------------------------------------------------------------------------
 def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
-    """Create a raw (VARIANT) and typed (silver) table pair for a FHIR resource type."""
+    """Create a private raw, typed view, and CDC target table for a FHIR resource type."""
     rt_lower = resource_type.lower()
     keys = [c["column_name"] for c in columns]
     keys_sql = ", ".join([f"'{k}'" for k in keys])
@@ -151,18 +163,15 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
     # Log schema evolution if applicable
     _detect_schema_evolution(resource_type, columns)
 
-    # --- Intermediate raw table: PIVOT with VARIANT columns -----------------
+    # --- Private raw table: append-only PIVOT with VARIANT columns ----------
     @dp.table(
         name=f"{rt_lower}_raw",
+        private=True,
         comment=(
-            f"Intermediate FHIR {resource_type} records. "
+            f"Private intermediate FHIR {resource_type} records. "
             f"PIVOT of fhir_resources with all columns as VARIANT."
         ),
-        cluster_by_auto=True,
         table_properties={
-            "delta.enableChangeDataFeed": "true",
-            "delta.enableDeletionVectors": "true",
-            "delta.enableRowTracking": "true",
             "pipelines.channel": "PREVIEW",
             "delta.feature.variantType-preview": "supported",
             "pipelines.reset.allowed": "true",
@@ -171,7 +180,7 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
     )
     def _raw():
         return spark.sql(f"""
-            SELECT * FROM (
+            SELECT *, current_timestamp() AS _processing_time FROM (
                 SELECT
                     resource_uuid AS {rt_lower}_uuid,
                     bundle_uuid,
@@ -185,15 +194,27 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
             )
         """)
 
-    # --- Typed silver table: CAST from VARIANT to inferred types ------------
+    # --- Typed temporary view: CAST from VARIANT to inferred types ----------
     cast_sql = _build_cast_sql(columns, rt_lower)
+
+    @dp.temporary_view(name=f"{rt_lower}_typed")
+    def _typed_view():
+        return spark.sql(f"""
+            SELECT
+                {cast_sql},
+                _processing_time
+            FROM STREAM({rt_lower}_raw)
+        """)
+
+    # --- Target silver table: Auto CDC Type 1 upserts ----------------------
     schema_ddl = _build_schema_ddl(columns, resource_type)
 
-    @dp.table(
+    dp.create_streaming_table(
         name=rt_lower,
         comment=(
             f"Typed FHIR {resource_type} records with columns cast "
-            f"from VARIANT to their inferred schemas."
+            f"from VARIANT to their inferred schemas. "
+            f"Auto CDC Type 1 upserts keyed on {rt_lower}_uuid."
         ),
         schema=f"\n        {schema_ddl}\n        ",
         cluster_by_auto=True,
@@ -207,16 +228,19 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
             "quality": "silver",
         },
     )
-    def _typed():
-        return spark.sql(f"""
-            SELECT
-                {cast_sql}
-            FROM STREAM({rt_lower}_raw)
-        """)
+
+    dp.create_auto_cdc_flow(
+        target=rt_lower,
+        source=f"{rt_lower}_typed",
+        keys=[f"{rt_lower}_uuid"],
+        sequence_by=col("_processing_time"),
+        except_column_list=["_processing_time"],
+        stored_as_scd_type=1,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Generate table pairs for each discovered resource type
+# Generate tables for each discovered resource type
 # ---------------------------------------------------------------------------
 for _rt, _cols in _resource_map.items():
     _create_resource_tables(_rt, _cols)
