@@ -159,7 +159,7 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
             f"Intermediate FHIR {resource_type} records. "
             f"PIVOT of fhir_resources with all columns as VARIANT."
         ),
-        cluster_by="auto",
+        cluster_by_auto=True,
         table_properties={
             "delta.enableChangeDataFeed": "true",
             "delta.enableDeletionVectors": "true",
@@ -197,7 +197,7 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
             f"from VARIANT to their inferred schemas."
         ),
         schema=f"\n        {schema_ddl}\n        ",
-        cluster_by="auto",
+        cluster_by_auto=True,
         table_properties={
             "delta.enableChangeDataFeed": "true",
             "delta.enableDeletionVectors": "true",

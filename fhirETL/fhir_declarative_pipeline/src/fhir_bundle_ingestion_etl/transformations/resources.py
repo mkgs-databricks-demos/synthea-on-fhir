@@ -19,7 +19,7 @@ from pyspark import pipelines as dp
         bundle_type STRING COMMENT 'The FHIR Bundle overall type.',
         meta VARIANT COMMENT 'Metadata about the FHIR Bundle overall. Always NULL for Synthea-generated data.'
     """,
-    cluster_by="auto",
+    cluster_by_auto=True,
     table_properties={
         "delta.enableChangeDataFeed": "true",
         "delta.enableDeletionVectors": "true",
@@ -60,7 +60,7 @@ def bundle_meta():
         value VARIANT
             COMMENT 'The value of the resource element extracted. May contain nested variants.'
     """,
-    cluster_by="auto",
+    cluster_by_auto=True,
     table_properties={
         "delta.enableChangeDataFeed": "true",
         "delta.enableDeletionVectors": "true",
@@ -97,7 +97,7 @@ def fhir_resources():
         schema_as_struct STRING
             COMMENT 'The same schema with OBJECT replaced by STRUCT for Spark compatibility.'
     """,
-    cluster_by="auto",
+    cluster_by_auto=True,
     table_properties={
         "delta.enableChangeDataFeed": "true",
         "delta.enableDeletionVectors": "true",

@@ -17,7 +17,7 @@ from pyspark.sql.functions import col, current_timestamp, expr
         bundle_uuid STRING NOT NULL COMMENT 'Unique identifier for the FHIR bundle.',
         value STRING COMMENT 'Original JSON record ingested from the volume as a full text string value.'
     """,
-    cluster_by="auto",
+    cluster_by_auto=True,
     table_properties={
         "delta.enableChangeDataFeed": "true",
         "delta.enableDeletionVectors": "true",
@@ -58,7 +58,7 @@ def fhir_bronze():
         > NOT NULL COMMENT 'Original metadata of the file ingested from the volume.',
         fhir VARIANT COMMENT 'Original JSON record fully parsed as a VARIANT data type.'
     """,
-    cluster_by="auto",
+    cluster_by_auto=True,
     table_properties={
         "delta.enableChangeDataFeed": "true",
         "delta.enableDeletionVectors": "true",

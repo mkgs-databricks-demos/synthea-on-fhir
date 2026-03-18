@@ -14,7 +14,7 @@
 
 resources:
   pipelines:
-    fhir_declarative_pipeline_etl:
+    fhir_bundle_ingestion_etl:
       name: FHIR Bundle Resource Parsing ETL
       catalog: ${var.catalog}
       schema: ${var.schema_resolved}
@@ -22,11 +22,11 @@ resources:
       channel: "CURRENT"
       continuous: false
       edition: "ADVANCED"
-      root_path: "../src/fhir_declarative_pipeline_etl"
+      root_path: "../src/fhir_bundle_ingestion_etl"
 
       libraries:
         - glob:
-            include: ../src/fhir_declarative_pipeline_etl/transformations/**
+            include: ../src/fhir_bundle_ingestion_etl/transformations/**
 
       configuration:
         pipeline.landing_volume_path: "/Volumes/${var.catalog}/${var.schema_resolved}/${var.landing_volume}"
