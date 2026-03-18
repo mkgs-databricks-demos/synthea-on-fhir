@@ -118,31 +118,4 @@ targets:
       - service_principal_name: ${var.run_as_user}
         level: CAN_MANAGE
 
-  prod:
-    mode: production
-    presets:
-      source_linked_deployment: false
-      tags:
-        project: ${var.tags_project}
-        businessUnit: ${var.tags_businessUnit}
-        requestedBy: ${var.tags_requestedBy}
-        developer: ${var.tags_developer}
-        RemoveAfter: ${var.tags_RemoveAfter}
-        env: ${bundle.target}
-    workspace:
-      host: https://fevm-hls-fde.cloud.databricks.com
-      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
-    # run_as:
-    #   user_name: ${var.run_as_user}
-    variables:
-      catalog: hls_fde
-      schema: prod
-      schema_resolved: ${var.schema}
-      run_as_user: ${var.higher_level_service_principal}
-    permissions:
-      - user_name: matthew.giglia@databricks.com
-        level: CAN_MANAGE
-      - group_name: users
-        level: CAN_RUN
-      - service_principal_name: ${var.run_as_user}
-        level: CAN_MANAGE
+

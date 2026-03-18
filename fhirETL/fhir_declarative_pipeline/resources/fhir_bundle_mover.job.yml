@@ -56,7 +56,7 @@ resources:
             - task_key: check_full_refresh
               outcome: "false"
           pipeline_task:
-            pipeline_id: ${resources.pipelines.fhir_bundle_mover.id}
+            pipeline_id: ${resources.pipelines.fhir_bundle_mover_etl.id}
             full_refresh: false
 
         # Task 3: Full refresh — runs when full_refresh == "true"
@@ -65,5 +65,5 @@ resources:
             - task_key: check_full_refresh
               outcome: "true"
           pipeline_task:
-            pipeline_id: ${resources.pipelines.fhir_bundle_mover.id}
+            pipeline_id: ${resources.pipelines.fhir_bundle_mover_etl.id}
             full_refresh: true

@@ -13,7 +13,7 @@
 
 resources:
   pipelines:
-    fhir_bundle_mover:
+    fhir_bundle_mover_etl:
       name: Streaming FHIR Bundle Mover
       catalog: ${var.catalog}
       schema: ${var.schema_resolved}
