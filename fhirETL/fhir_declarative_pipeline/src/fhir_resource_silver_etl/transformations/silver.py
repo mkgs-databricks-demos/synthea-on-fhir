@@ -19,10 +19,9 @@ Why SQL CAST instead of a UDF:
   handles VARIANT-to-typed conversions including nested ARRAY<STRUCT<...>> types.
 
 Two-pass behavior:
-  - First run: Bronze and resource tables are populated. No silver tables are
-    created since fhir_resource_schemas does not yet exist in the catalog.
-  - Subsequent runs: Silver tables are dynamically generated for each discovered
-    resource type (e.g., Patient, Encounter, Condition, Observation, etc.).
+  - First run of ingestion pipeline: Bronze and resource tables are populated.
+  - First run of this silver pipeline: Silver tables are dynamically generated
+    for each discovered resource type (e.g., Patient, Encounter, Condition).
   - Schema changes: If fhir_resource_schemas has new columns or changed types,
     the table definitions change and DLT triggers a full refresh automatically.
 """
@@ -31,7 +30,7 @@ from pyspark import pipelines as dp
 
 
 # ---------------------------------------------------------------------------
-# Discover resource types and their schemas from previous pipeline runs
+# Discover resource types and their schemas from the ingestion pipeline
 # ---------------------------------------------------------------------------
 try:
     _catalog = spark.conf.get("pipeline.catalog_use")
@@ -179,7 +178,7 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
                     fullUrl AS {rt_lower}_url,
                     key,
                     value
-                FROM STREAM(fhir_resources)
+                FROM STREAM({_catalog}.{_schema}.fhir_resources)
                 WHERE resourceType = '{resource_type}'
             ) PIVOT (
                 first(value) FOR key IN ({keys_sql})

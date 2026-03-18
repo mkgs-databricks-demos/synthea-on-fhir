@@ -1,0 +1,68 @@
+# FHIR Resource Silver ETL pipeline.
+#
+# Dynamically generates typed silver tables for each FHIR resource type
+# discovered in fhir_resource_schemas (produced by the fhir_bundle_ingestion_etl
+# pipeline). For each resource type (e.g. Patient, Encounter, Condition):
+#
+#   1. {resource_type}_raw  - Intermediate streaming table: PIVOTs exploded
+#                             key-value rows from fhir_resources into individual
+#                             VARIANT columns.
+#   2. {resource_type}      - Typed silver streaming table: CASTs each VARIANT
+#                             column to its inferred schema from
+#                             fhir_resource_schemas.
+#
+# Schema evolution is handled automatically: when new columns or changed struct
+# types appear in fhir_resource_schemas, the table definitions change and DLT
+# triggers a full refresh (pipelines.reset.allowed = true).
+#
+# This pipeline should run AFTER fhir_bundle_ingestion_etl has completed.
+
+resources:
+  pipelines:
+    fhir_resource_silver_etl:
+      name: FHIR Resource Silver ETL
+      catalog: ${var.catalog}
+      schema: ${var.schema_resolved}
+      serverless: true
+      channel: "CURRENT"
+      continuous: false
+      edition: "ADVANCED"
+      root_path: "../src/fhir_resource_silver_etl"
+
+      libraries:
+        - glob:
+            include: ../src/fhir_resource_silver_etl/transformations/**
+
+      configuration:
+        pipeline.catalog_use: "${var.catalog}"
+        pipeline.schema_use: "${var.schema_resolved}"
+
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${var.schema_resolved}
+        name: fhir_resource_silver_etl_event_log
+
+      notifications:
+        - email_recipients:
+            - matthew.giglia@databricks.com
+          alerts:
+            - on-update-success
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+
+      permissions:
+        - user_name: matthew.giglia@databricks.com
+          level: CAN_MANAGE
+
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+
+      environment:
+        dependencies:
+          - --editable ${workspace.file_path}
