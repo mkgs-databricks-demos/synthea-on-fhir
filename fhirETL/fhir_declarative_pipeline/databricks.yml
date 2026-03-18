@@ -100,8 +100,10 @@ targets:
           name: ${var.landing_volume}
           catalog_name: ${var.catalog}
           schema_name: ${var.schema_resolved}
-    # run_as:
-    #   user_name: ${var.run_as_user}
+      jobs:
+        fhir_bundle_mover_job:
+          run_as:
+            service_principal_name: ${var.run_as_user}
     variables:
       catalog: hls_fde
       schema: fhir
