@@ -4,7 +4,7 @@
 resources:
   experiments:
     epic_on_fhir_requests_experiment:
-      name: /Workspace/experiments/epic_on_fhir_requests
+      name: /Workspace/.experiments/epic_on_fhir_requests
       artifact_location: "dbfs:/Volumes/${resources.volumes.mlflow_artifacts.catalog_name}/${resources.volumes.mlflow_artifacts.schema_name}/${resources.volumes.mlflow_artifacts.name}"
       tags:
         - key: description
