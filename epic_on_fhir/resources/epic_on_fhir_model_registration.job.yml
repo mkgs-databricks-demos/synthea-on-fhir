@@ -68,7 +68,7 @@ resources:
           spec:
             environment_version: ${var.serverless_environment_version}
             dependencies:
-              - --index-url ${var.pip_index_url}
+              - --extra-index-url ${var.pip_index_url}
               - PyJWT
               - cryptography
               - requests
