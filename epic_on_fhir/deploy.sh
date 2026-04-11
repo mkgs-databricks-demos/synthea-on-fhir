@@ -74,7 +74,7 @@ echo "  Job: ${JOB_KEY}"
 echo "  This registers a new model version, validates, and promotes to champion."
 echo ""
 
-databricks bundle run -t "${TARGET}" "${JOB_KEY}" --restart-on-rerun
+databricks bundle run -t "${TARGET}" "${JOB_KEY}"
 
 echo ""
 echo "  ✓ Model registration job completed."
