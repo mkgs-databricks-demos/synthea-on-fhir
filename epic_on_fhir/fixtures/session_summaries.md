@@ -2,6 +2,61 @@
 
 ---
 
+## Session: 2026-04-11 09:00 UTC
+
+### Serving Endpoint Config Update Limitation
+
+**Problem**: User asked whether the bundle can update AI Gateway and telemetry on existing endpoints after first deployment.
+
+**Finding**: The Serving Endpoint REST API splits configuration updates across multiple paths:
+
+| API | What it updates |
+| --- | --- |
+| `POST /serving-endpoints` | Creates with full config (served_entities, traffic_config, telemetry_config, ai_gateway, tags) |
+| `PUT /serving-endpoints/{name}/config` | Only served_entities and traffic_config |
+| `PUT /serving-endpoints/{name}/ai-gateway` | AI Gateway settings only |
+| `PATCH /serving-endpoints/{name}` | Tags only |
+
+**Impact**: DAB bundle's serving resource sets all config on first deploy. On subsequent deploys it uses the config update API, which only handles served_entities and traffic_config — AI Gateway and telemetry require separate API calls.
+
+### Created `update-serving-endpoint-config.ipynb`
+
+New notebook (`src/update-serving-endpoint-config.ipynb`) using the Databricks SDK to update an existing serving endpoint without redeploying the model:
+
+| Cell | Purpose |
+| --- | --- |
+| Parameters | Widgets: `endpoint_name`, `catalog`, `schema`, tag values (`component`, `environment`, `project`, `owner`) |
+| AI Gateway | `w.serving_endpoints.update_ai_gateway()` — inference tables, usage tracking, guardrails, rate limits (100/min/user) |
+| Telemetry | `w.serving_endpoints.update_config()` — OpenTelemetry traces/logs/metrics table names |
+| Tags | `w.serving_endpoints.patch()` — component, environment, project, owner |
+| Verification | `w.serving_endpoints.get()` — reads back and prints all config |
+
+### Conditional Job Workflow
+
+Updated `resources/epic_on_fhir_model_registration.job.yml` with `updateAIGatewayOnly` parameter and three-task conditional flow:
+
+| Task | Condition | Purpose |
+| --- | --- | --- |
+| `check_update_mode` | `condition_task` evaluating `updateAIGatewayOnly == "true"` | Branch gate |
+| `register_and_promote_model` | Runs only if condition is **false** | Full model registration + promotion |
+| `update_endpoint_config` | Runs after model registration (condition false) OR directly (condition true) | AI Gateway, telemetry, tags update |
+
+**Usage**: `updateAIGatewayOnly=false` (default) → full deployment. `updateAIGatewayOnly=true` → config-only update, skips model registration.
+
+### Cleanup
+
+Deleted stray `session_summary.md` created at bundle root — session summaries belong in `fixtures/session_summaries.md` per convention.
+
+### Files Modified (Summary)
+
+| File | Action |
+| --- | --- |
+| `src/update-serving-endpoint-config.ipynb` | Created — Databricks SDK notebook for AI Gateway, telemetry, and tag updates |
+| `resources/epic_on_fhir_model_registration.job.yml` | Added `updateAIGatewayOnly` parameter, `check_update_mode` condition task, `update_endpoint_config` task |
+| `session_summary.md` (bundle root) | Deleted — stray file, content merged here |
+
+---
+
 ## Session: 2026-04-11 08:00 UTC
 
 ### SQL Endpoint Test Queries (via ai_query)

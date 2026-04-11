@@ -1,80 +1,67 @@
-# Epic on FHIR model registration workflow.
-# Registers a new model version, validates with traced predictions,
-# promotes challenger → champion, and updates the serving endpoint.
-#
-# Run via: databricks bundle run -t <target> epic_on_fhir_model_registration
-# Or via the deploy script: ./deploy.sh <target>
-
 resources:
   jobs:
     epic_on_fhir_model_registration:
-      name: epic_on_fhir_model_registration
-      description: >
-        Registers a new Epic on FHIR requests model version from the
-        EpicFhirPyfuncModel pyfunc, validates it with traced predictions
-        against the Epic sandbox, promotes to champion (rotating prior),
-        and updates the serving endpoint to serve the new version.
-
-      tags:
-        project: ${var.tags_project}
-        businessUnit: ${var.tags_businessUnit}
-        developer: ${var.tags_developer}
-        requestedBy: ${var.tags_requestedBy}
-
-      # On-demand execution — no schedule trigger.
-      # Uncomment to run on a schedule:
-      # trigger:
-      #   periodic:
-      #     interval: 7
-      #     unit: DAYS
-
-      # Job-level parameters for runtime overrides.
-      # Defaults resolve from deployed bundle resources and variables.
+      name: epic-on-fhir-model-registration
+      description: Registers the Epic on FHIR model to Unity Catalog and optionally updates the serving endpoint configuration
+      
       parameters:
-        - name: secret_scope_name
-          default: ${var.secret_scope_name}
-        - name: client_id_dbs_key
-          default: ${var.client_id_dbs_key}
-        - name: algo
-          default: ${var.algo}
-        - name: token_url
-          default: ${var.token_url}
-        - name: mlflow_experiment_name
-          default: ${resources.experiments.epic_on_fhir_requests_experiment.name}
-        - name: pip_index_url
-          default: ${var.pip_index_url}
+        - name: catalog
+          default: ${resources.schemas.epic_on_fhir_schema.catalog_name}
+        - name: schema
+          default: ${resources.schemas.epic_on_fhir_schema.name}
         - name: registered_model_name
           default: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.${resources.registered_models.epic_on_fhir_requests_model.name}
-
-      tasks:
-        - task_key: register_and_promote_model
-          notebook_task:
-            notebook_path: ../src/epic-on-fhir-requests-model.ipynb
-            base_parameters:
-              secret_scope_name: "{{job.parameters.secret_scope_name}}"
-              client_id_dbs_key: "{{job.parameters.client_id_dbs_key}}"
-              algo: "{{job.parameters.algo}}"
-              token_url: "{{job.parameters.token_url}}"
-              mlflow_experiment_name: "{{job.parameters.mlflow_experiment_name}}"
-              pip_index_url: "{{job.parameters.pip_index_url}}"
-              registered_model_name: "{{job.parameters.registered_model_name}}"
-          environment_key: default
-
+        - name: endpoint_name
+          default: ${resources.model_serving_endpoints.epic_on_fhir_requests_endpoint.name}
+        - name: updateAIGatewayOnly
+          default: "false"
+      
+      # Shared serverless environment for all notebook tasks
       environments:
         - environment_key: default
           spec:
-            environment_version: ${var.serverless_environment_version}
-            # Note: --extra-index-url is NOT used here. Serverless compute uses
-            # Databricks' own package mirror and cannot reach pypi-proxy.
-            # The proxy (var.pip_index_url) is for local dev only (pyproject.toml, .npmrc).
+            client: ${var.serverless_environment_version}
             dependencies:
-              - PyJWT
-              - cryptography
-              - requests
-              - "mlflow>=3.1"
-              - pandas
-              - "databricks-sdk>=0.91.0"
-
-      # email_notifications:
-      #   on_failure:
-      #     - ${var.tags_developer}
+              - "mlflow>=2.10.0"
+              - "databricks-sdk>=0.20.0"
+      
+      tasks:
+        # Condition task: Check if we should update AI Gateway only or do full deployment
+        - task_key: check_update_mode
+          condition_task:
+            op: EQUAL_TO
+            left: "{{job.parameters.updateAIGatewayOnly}}"
+            right: "true"
+        
+        # Task 1: Register and promote model (runs only if updateAIGatewayOnly=false)
+        - task_key: register_and_promote_model
+          depends_on:
+            - task_key: check_update_mode
+              outcome: "false"
+          notebook_task:
+            notebook_path: ../src/epic_on_fhir_requests_model_registration.ipynb
+            base_parameters:
+              registered_model_name: "{{job.parameters.registered_model_name}}"
+          environment_key: default
+        
+        # Task 2: Update endpoint configuration (AI Gateway, telemetry, tags)
+        # Runs after model registration OR directly when register_and_promote_model is skipped.
+        # run_if: ALL_DONE ensures this task executes in both branches:
+        #   - updateAIGatewayOnly=false: register_and_promote_model completes → this runs
+        #   - updateAIGatewayOnly=true: register_and_promote_model is skipped (treated as done) → this runs
+        - task_key: update_endpoint_config
+          depends_on:
+            - task_key: check_update_mode
+            - task_key: register_and_promote_model
+          run_if: ALL_DONE
+          notebook_task:
+            notebook_path: ../src/update-serving-endpoint-config.ipynb
+            base_parameters:
+              endpoint_name: "{{job.parameters.endpoint_name}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              component: epic-on-fhir
+              environment: ${var.environment}
+              project: epic-on-fhir-bundle
+              owner: ${var.owner}
+          environment_key: default
