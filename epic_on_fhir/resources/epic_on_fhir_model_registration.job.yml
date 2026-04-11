@@ -45,11 +45,13 @@ resources:
           default: ${var.token_url}
         - name: mlflow_experiment_name
           default: ${resources.experiments.epic_on_fhir_requests_experiment.name}
+        - name: pip_index_url
+          default: ${var.pip_index_url}
 
       tasks:
         - task_key: register_and_promote_model
           notebook_task:
-            notebook_path: ../src/epic-on-fhir-requests-model.ipynb
+            notebook_path: ../src/epic-on-fhir-requests-model
             base_parameters:
               catalog_use: "{{job.parameters.catalog_use}}"
               schema_use: "{{job.parameters.schema_use}}"
@@ -58,6 +60,7 @@ resources:
               algo: "{{job.parameters.algo}}"
               token_url: "{{job.parameters.token_url}}"
               mlflow_experiment_name: "{{job.parameters.mlflow_experiment_name}}"
+              pip_index_url: "{{job.parameters.pip_index_url}}"
           environment_key: default
 
       environments:
@@ -65,7 +68,13 @@ resources:
           spec:
             environment_version: ${var.serverless_environment_version}
             dependencies:
-              - ../pyproject.toml
+              - --index-url ${var.pip_index_url}
+              - PyJWT
+              - cryptography
+              - requests
+              - "mlflow>=3.1"
+              - pandas
+              - "databricks-sdk>=0.91.0"
 
       # email_notifications:
       #   on_failure:

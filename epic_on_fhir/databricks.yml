@@ -46,6 +46,15 @@ variables:
   model_deployment_version:
     description: The version of the model to deploy with the bundle
     default: "1"
+  pip_index_url:
+    description: >-
+      Canonical pip index URL for all package installations (jobs, apps, model serving).
+      Also mirrored manually in: pyproject.toml [[tool.uv.index]], src/jwk_url_app/requirements.txt.
+    default: https://pypi-proxy.dev.databricks.com/simple/
+  npm_registry_url:
+    description: >-
+      Canonical npm registry URL. Mirrored manually in .npmrc (not DAB-processed).
+    default: https://npm-proxy.dev.databricks.com/
   tags_project: 
     default: Open Epic Smart on FHIR
     description: Project tag to use for deployed resources.  
