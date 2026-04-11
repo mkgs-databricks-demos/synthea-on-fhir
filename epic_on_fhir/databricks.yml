@@ -95,7 +95,7 @@ targets:
             prevent_destroy: true
       experiments:
         epic_on_fhir_requests_experiment:
-          name: /Workspace/experiments/epic_on_fhir_requests
+          name: /Workspace/.experiments/epic_on_fhir_requests
           permissions:
           - level: CAN_READ
             group_name: users
@@ -145,7 +145,7 @@ targets:
             prevent_destroy: true
       experiments:
         epic_on_fhir_requests_experiment:
-          name: /Workspace/experiments/epic_on_fhir_requests
+          name: /Workspace/.experiments/epic_on_fhir_requests
           permissions:
           - level: CAN_READ
             group_name: users
