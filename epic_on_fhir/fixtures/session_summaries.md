@@ -2,6 +2,81 @@
 
 ---
 
+## Session: 2026-04-11 08:00 UTC
+
+### SQL Endpoint Test Queries (via ai_query)
+
+Created two SQL queries that call the `sandbox_epic_on_fhir_requests` model serving endpoint using `ai_query()` instead of the Python SDK. Uses the baseline pattern from [Simple Endpoint Test](#query-414613ad-b10c-40d4-b310-73a3e1645cd1) and translates the full flow from [epic-on-fhir-example](#notebook-2671959084702948).
+
+#### Simple Endpoint Test (query)
+
+**Fixes applied across multiple `/fix` iterations**:
+
+| Issue | Root Cause | Fix |
+| --- | --- | --- |
+| `PARSE_SYNTAX_ERROR` at `"dataframe_split"` | Raw JSON object literal `{ "key": "value" }` is not valid SQL | Replaced with `named_struct()` for `ai_query` `request` parameter |
+| `AI_FUNCTION_HTTP_PARSE_COLUMNS_ERROR` | Model returns 5 columns but `ai_query` defaults to single STRING | Added `returnType => 'STRUCT<response_headers:STRING, response_url:STRING, response_time_seconds:DOUBLE, response_status_code:INT, response_text:STRING>'` |
+| `AI_FUNCTION_UNSUPPORTED_RETURN_TYPE` for `"StringType"` | Spark internal type name, not SQL syntax | Changed to `"STRING"` (valid SQL type), then to full STRUCT since model returns multiple columns |
+
+**Final pattern**: CTE calls `ai_query` once, outer SELECT expands struct fields with `parse_json()` on JSON columns (`response_headers`, `response_text` as VARIANT).
+
+**Parameters**: `catalog_name` (default: `hls_fde`), `schema_name` (default: `sandbox_open_epic_smart_on_fhir`) with `USE CATALOG/SCHEMA IDENTIFIER(:param)` at top.
+
+#### Epic FHIR Endpoint Test Flow (query)
+
+Full 7-step end-to-end test flow translated from the notebook into pure SQL:
+
+| Step | Type | Resource | Description |
+| --- | --- | --- | --- |
+| 1 | GET | Patient | Search by `?identifier=EXTERNAL\|Z6129`, extract FHIR STU3 ID |
+| 2 | GET | Patient/$summary | Clinical summary for extracted patient |
+| 3 | GET | Encounter | Search encounters for patient, extract encounter_id |
+| 4 | POST | Observation | Create Heart Rate vital sign (Epic flowsheet code 8) |
+| 5 | GET | Observation | Read-back to verify creation |
+| 6 | POST | AllergyIntolerance | Create Penicillin allergy (RxNorm 7980) |
+| 7 | GET | AllergyIntolerance | Read-back to verify creation |
+
+**Key SQL techniques**:
+- `DECLARE OR REPLACE VARIABLE` + `SET VARIABLE` for chaining results between steps (patient_id → encounter_id → observation_id → allergy_id)
+- `filter()` + `from_json()` to extract typed identifiers from VARIANT arrays
+- `format_string()` + `concat()` to build FHIR JSON payloads for POST requests
+- `parse_json(response_headers):Location` + `element_at(split(..., '/'), -1)` to extract resource IDs from POST 201 Location headers
+- Summary statement with CASE expression reporting pass/fail for all 4 extraction steps
+
+**13 total statements**, 7 Epic API calls (each called exactly once). Same `catalog_name`/`schema_name` parameters as Simple Endpoint Test.
+
+### Patient ID: DSTU2 vs STU3
+
+**Problem**: Initial SQL flow extracted `type.text = 'FHIR'` (DSTU2 ID: `TnOZ.elPXC6...`) from the Patient search, while the notebook's cell 16 overrides with the STU3 ID (`erXuFYUfucBZaryVksYEcMg3`).
+
+**Fix**: Changed filter from `x -> x.type.text = 'FHIR'` to `x -> x.type.text = 'FHIR STU3'` to match the notebook's actual behavior. Epic resolves both internally, but STU3 is the canonical ID.
+
+### AllergyIntolerance Read-Back: Epic 400 (Both Notebook & SQL)
+
+**Problem**: GET `AllergyIntolerance/{id}` returns HTTP 400 with Epic error 59102: `"Error normalizing codeable concept"` at `/f:codeableconcept`.
+
+**Investigation**:
+- POST succeeds (201) with valid Location header in both notebook and SQL
+- ID extraction verified correct (relative path `AllergyIntolerance/{id}`, `split('/')[-1]` gives correct ID)
+- Tested with both DSTU2 and STU3 patient IDs — same 400 on read-back
+- Payloads are semantically identical between notebook (`json.dumps`) and SQL (`format_string`)
+
+**Finding**: The notebook was **never successfully reading back** AllergyIntolerance either. The `else` branch in cell 28 ran `json.dumps(new_allergy)` which failed with `"Object of type CaseInsensitiveDict is not JSON serializable"` — this **masked** the real Epic 400 error.
+
+**Root Cause**: Epic sandbox server-side issue. The AllergyIntolerance resource is created (201) but Epic cannot serialize it back to FHIR JSON on read. Error 59102 = "Content invalid against the specification or a profile." This is an Epic FHIR server normalization bug, not a client-side issue.
+
+**Fix to cell 28**: Convert `response_headers` (a `requests.CaseInsensitiveDict`) to a plain `dict` before `json.dumps` in the `else` branch, so the actual Epic OperationOutcome is visible. Cell 23 (Observation read-back) has the same latent bug but doesn't trigger because Observation GETs return 200.
+
+### Files Modified (Summary)
+
+| File | Action |
+| --- | --- |
+| Query: Simple Endpoint Test | Created — single `ai_query` call with `named_struct`, STRUCT returnType, VARIANT columns, parameterized catalog/schema |
+| Query: Epic FHIR Endpoint Test Flow | Created — 13-statement flow with `DECLARE`/`SET VARIABLE` chaining, 7 API calls, pass/fail summary |
+| `src/epic-on-fhir-example` cell 28 | Fixed `CaseInsensitiveDict` serialization in AllergyIntolerance read-back error path |
+
+---
+
 ## Session: 2026-04-11 07:42 UTC
 
 ### Serverless Environment & Proxy Fixes
