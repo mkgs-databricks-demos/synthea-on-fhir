@@ -55,6 +55,7 @@ resources:
               endpoint_name: "{{job.parameters.endpoint_name}}"
               catalog: "{{job.parameters.catalog}}"
               schema: "{{job.parameters.schema}}"
+              registered_model_name: "{{job.parameters.registered_model_name}}"
               component: epic-on-fhir
               environment: ${bundle.target}
               project: ${var.tags_project}
@@ -73,6 +74,7 @@ resources:
               endpoint_name: "{{job.parameters.endpoint_name}}"
               catalog: "{{job.parameters.catalog}}"
               schema: "{{job.parameters.schema}}"
+              registered_model_name: "{{job.parameters.registered_model_name}}"
               component: epic-on-fhir
               environment: ${bundle.target}
               project: ${var.tags_project}
