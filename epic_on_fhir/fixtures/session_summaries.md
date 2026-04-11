@@ -104,12 +104,34 @@ Created 4 pytest test files (54 tests total) compatible with the Databricks work
 
 **Verification**: Full suite run via `python -B -m pytest` — 54 passed, 0 failed, 2.90s.
 
+### Serving Endpoint — Tags & Telemetry
+
+Added tags and telemetry best practices to `resources/epic_on_fhir_requests.serving.yml`.
+
+**Tags** (cost tracking): Added `project`, `businessUnit`, `developer`, `requestedBy` tags using bundle variables. These propagate to `system.billing.usage` under `custom_tags` for cost attribution.
+
+**Endpoint Telemetry** (Preview): Added `telemetry_config` to persist OpenTelemetry data to three Unity Catalog Delta tables in the same schema as other FHIR resources:
+
+| Table | Content |
+| --- | --- |
+| `epic_on_fhir_requests_otel_logs` | Application logs (severity, body, attributes) |
+| `epic_on_fhir_requests_otel_metrics` | Performance metrics |
+| `epic_on_fhir_requests_otel_spans` | Distributed traces/spans (trace_id, span_id) |
+
+**AI Gateway**: Added inference table config (request/response payload logging), usage tracking, and per-user rate limiting (60 calls/min).
+
+**Other additions**:
+- `ENABLE_MLFLOW_TRACING: "true"` env var on served entity
+- `description` field on endpoint
+- `traffic_config` with explicit routing
+
 ### Assistant Instructions Updated
 
 Updated `.assistant_instructions.md` to document:
 - Proxy is for local dev only (not Databricks-managed compute)
 - Specific locations where proxy IS and IS NOT configured
 - The `pip_index_url` widget/param flow for future flexibility
+- Session summaries convention for all bundles
 
 ### Files Modified (Summary)
 
@@ -117,6 +139,7 @@ Updated `.assistant_instructions.md` to document:
 | --- | --- |
 | `databricks.yml` | Updated `serverless_environment_version` default: 4 → 5 |
 | `resources/epic_on_fhir_model_registration.job.yml` | Removed proxy, removed catalog_use/schema_use params, added registered_model_name param |
+| `resources/epic_on_fhir_requests.serving.yml` | Added tags, telemetry_config, ai_gateway (inference tables, usage tracking, rate limits) |
 | `resources/jwk_url.app.yml` | Removed `PIP_INDEX_URL` env var |
 | `src/jwk_url_app/requirements.txt` | Removed `--extra-index-url` |
 | `README.md` | Comprehensive rewrite (deploy script docs, fixed references, new sections) |
@@ -131,4 +154,5 @@ Updated `.assistant_instructions.md` to document:
 | `tests/test_epic_fhir_pyfunc.py` | Created (13 tests) |
 | `tests/test_payloads.py` | Created (19 tests) |
 | `tests/sample_taxis_test.py` | Deleted |
-| `.assistant_instructions.md` | Updated proxy documentation |
+| `fixtures/session_summaries.md` | Created |
+| `.assistant_instructions.md` | Updated proxy documentation, added session summaries convention |

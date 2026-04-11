@@ -8,6 +8,15 @@ resources:
     epic_on_fhir_requests_endpoint:
       name: epic_on_fhir_requests
       description: Endpoint for handling requests to Open Epic's Smart-On-FHIR APIs
+      tags:
+        - key: project
+          value: ${var.tags_project}
+        - key: businessUnit
+          value: ${var.tags_businessUnit}
+        - key: developer
+          value: ${var.tags_developer}
+        - key: requestedBy
+          value: ${var.tags_requestedBy}
       config:
         served_entities:
           - entity_name: ${resources.registered_models.epic_on_fhir_requests_model.id}
@@ -20,6 +29,14 @@ resources:
               EPIC_CLIENT_ID: "{{secrets/epic_on_fhir_oauth_keys/${var.client_id_dbs_key}}}"
               EPIC_KID: "{{secrets/epic_on_fhir_oauth_keys/kid}}"
               EPIC_PRIVATE_KEY: "{{secrets/epic_on_fhir_oauth_keys/private_key}}"
+        # Endpoint telemetry (Preview): Persists OTel logs, metrics, and traces/spans
+        # to Unity Catalog Delta tables for custom model observability.
+        # Tables created: <prefix>_otel_logs, <prefix>_otel_metrics, <prefix>_otel_spans
+        telemetry_config:
+          table_names:
+            logs_table: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.epic_on_fhir_requests_otel_logs
+            metrics_table: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.epic_on_fhir_requests_otel_metrics
+            traces_table: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.epic_on_fhir_requests_otel_spans
         traffic_config:
           routes:
             - served_model_name: epic_on_fhir_requests_endpoint-${var.model_deployment_version}
