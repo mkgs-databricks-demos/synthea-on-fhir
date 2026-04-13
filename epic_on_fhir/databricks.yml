@@ -46,12 +46,6 @@ variables:
   model_deployment_version:
     description: The version of the model to deploy with the bundle
     default: "1"
-  approval_timeout_minutes:
-    description: >-
-      How long (in minutes) the deployment job approval task polls for the
-      approval_check UC tag before timing out. Set to "0" for immediate
-      pass/fail (no polling).
-    default: "30"
   pip_index_url:
     description: >-
       Canonical pip index URL for all package installations (jobs, apps, model serving).

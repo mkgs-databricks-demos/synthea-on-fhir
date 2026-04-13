@@ -14,8 +14,6 @@ resources:
           default: "1"
         - name: mlflow_experiment_name
           default: ${resources.experiments.epic_on_fhir_requests_experiment.name}
-        - name: approval_timeout_minutes
-          default: ${var.approval_timeout_minutes}
         - name: catalog
           default: ${resources.schemas.epic_on_fhir_schema.catalog_name}
         - name: schema
@@ -51,7 +49,8 @@ resources:
         
         # Task 2: Check Unity Catalog tag for manual approval
         # Task name MUST start with "approval" (MLflow 3 deployment job requirement)
-        # Polls every 30s for up to approval_timeout_minutes (default from var)
+        # Fails immediately if not approved — the UC UI "Approve" button triggers
+        # auto-repair to re-run this task once the tag is set.
         - task_key: approval_check
           depends_on:
             - task_key: evaluation
@@ -60,7 +59,7 @@ resources:
             base_parameters:
               model_name: "{{job.parameters.model_name}}"
               model_version: "{{job.parameters.model_version}}"
-              approval_timeout_minutes: "{{job.parameters.approval_timeout_minutes}}"
+          max_retries: 0
           environment_key: default
         
         # Task 3: Deploy approved model (promote to champion, update endpoint)
