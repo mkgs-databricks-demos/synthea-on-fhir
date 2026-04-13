@@ -26,6 +26,7 @@ resources:
             scale_to_zero_enabled: true
             environment_vars:
               ENABLE_MLFLOW_TRACING: "true"
+              ENABLE_OTEL_INSTRUMENTATION: "${var.enable_otel_instrumentation}"
               EPIC_CLIENT_ID: "{{secrets/epic_on_fhir_oauth_keys/${var.client_id_dbs_key}}}"
               EPIC_KID: "{{secrets/epic_on_fhir_oauth_keys/kid}}"
               EPIC_PRIVATE_KEY: "{{secrets/epic_on_fhir_oauth_keys/private_key}}"

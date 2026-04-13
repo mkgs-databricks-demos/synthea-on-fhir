@@ -55,6 +55,13 @@ variables:
     description: >-
       Canonical npm registry URL. Mirrored manually in .npmrc (not DAB-processed).
     default: https://npm-proxy.dev.databricks.com/
+  enable_otel_instrumentation:
+    description: >-
+      Enable OpenTelemetry SDK instrumentation (custom metrics and traces) in the
+      pyfunc model on the serving endpoint. Requires endpoint telemetry_config to be
+      set. This is a Preview feature — set to "true" to opt in per target.
+      Standard Python logging to _otel_logs works regardless of this setting.
+    default: "false"
   tags_project: 
     default: Open Epic Smart on FHIR
     description: Project tag to use for deployed resources.  
@@ -230,6 +237,7 @@ targets:
       run_as_user: ${var.higher_level_service_principal}
       client_id_dbs_key: client_id
       model_deployment_version: "1"
+      enable_otel_instrumentation: "true"
     permissions:
       - user_name: matthew.giglia@databricks.com
         level: CAN_MANAGE
