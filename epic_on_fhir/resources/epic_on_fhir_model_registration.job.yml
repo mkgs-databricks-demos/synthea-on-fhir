@@ -2,81 +2,49 @@ resources:
   jobs:
     epic_on_fhir_model_registration:
       name: epic-on-fhir-model-registration
-      description: Registers the Epic on FHIR model to Unity Catalog and optionally updates the serving endpoint configuration
+      description: |
+        Registers the Epic on FHIR model to Unity Catalog with "challenger" alias.
+        On successful registration, a new model version is created which triggers
+        the deployment job (epic-on-fhir-model-deployment) automatically.
       
       parameters:
-        - name: catalog
-          default: ${resources.schemas.epic_on_fhir_schema.catalog_name}
-        - name: schema
-          default: ${resources.schemas.epic_on_fhir_schema.name}
+        - name: secret_scope_name
+          default: ${var.secret_scope_name}
+        - name: client_id_dbs_key
+          default: ${var.client_id_dbs_key}
+        - name: algo
+          default: ${var.algo}
+        - name: token_url
+          default: ${var.token_url}
+        - name: mlflow_experiment_name
+          default: ${resources.experiments.epic_on_fhir_requests_experiment.name}
+        - name: pip_index_url
+          default: ${var.pip_index_url}
         - name: registered_model_name
-          default: ${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.${resources.registered_models.epic_on_fhir_requests_model.name}
-        - name: endpoint_name
-          default: ${resources.model_serving_endpoints.epic_on_fhir_requests_endpoint.name}
-        - name: updateAIGatewayOnly
-          default: "false"
+          default: "${resources.schemas.epic_on_fhir_schema.catalog_name}.${resources.schemas.epic_on_fhir_schema.name}.${resources.registered_models.epic_on_fhir_requests_model.name}"
       
-      # Shared serverless environment for all notebook tasks
+      # Only one registration at a time
+      max_concurrent_runs: 1
+      
+      # Serverless environment
       environments:
         - environment_key: default
           spec:
             environment_version: ${var.serverless_environment_version}
             dependencies:
-              - "mlflow>=2.10.0"
+              - "mlflow>=3.0.0"
               - "databricks-sdk>=0.20.0"
       
       tasks:
-        # Condition task: Branch on updateAIGatewayOnly
-        - task_key: check_update_mode
-          condition_task:
-            op: EQUAL_TO
-            left: "{{job.parameters.updateAIGatewayOnly}}"
-            right: "true"
-        
-        # Branch: updateAIGatewayOnly=false (full deployment)
-        # 1. Register and promote model
-        - task_key: register_and_promote_model
-          depends_on:
-            - task_key: check_update_mode
-              outcome: "false"
+        - task_key: register_model
           notebook_task:
             notebook_path: ../src/epic-on-fhir-requests-model.ipynb
             base_parameters:
+              secret_scope_name: "{{job.parameters.secret_scope_name}}"
+              client_id_dbs_key: "{{job.parameters.client_id_dbs_key}}"
+              algo: "{{job.parameters.algo}}"
+              token_url: "{{job.parameters.token_url}}"
+              mlflow_experiment_name: "{{job.parameters.mlflow_experiment_name}}"
+              pip_index_url: "{{job.parameters.pip_index_url}}"
               registered_model_name: "{{job.parameters.registered_model_name}}"
-          environment_key: default
-        
-        # 2. Then update endpoint config
-        - task_key: update_endpoint_config_after_registration
-          depends_on:
-            - task_key: register_and_promote_model
-          notebook_task:
-            notebook_path: ../src/update-serving-endpoint-config.ipynb
-            base_parameters:
-              endpoint_name: "{{job.parameters.endpoint_name}}"
-              catalog: "{{job.parameters.catalog}}"
-              schema: "{{job.parameters.schema}}"
-              registered_model_name: "{{job.parameters.registered_model_name}}"
-              component: epic-on-fhir
-              environment: ${bundle.target}
-              project: ${var.tags_project}
-              owner: ${var.tags_developer}
-          environment_key: default
-        
-        # Branch: updateAIGatewayOnly=true (config-only)
-        # Update endpoint config directly, skip model registration
-        - task_key: update_endpoint_config_only
-          depends_on:
-            - task_key: check_update_mode
-              outcome: "true"
-          notebook_task:
-            notebook_path: ../src/update-serving-endpoint-config.ipynb
-            base_parameters:
-              endpoint_name: "{{job.parameters.endpoint_name}}"
-              catalog: "{{job.parameters.catalog}}"
-              schema: "{{job.parameters.schema}}"
-              registered_model_name: "{{job.parameters.registered_model_name}}"
-              component: epic-on-fhir
-              environment: ${bundle.target}
-              project: ${var.tags_project}
-              owner: ${var.tags_developer}
           environment_key: default

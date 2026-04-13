@@ -1,0 +1,73 @@
+resources:
+  jobs:
+    epic_on_fhir_model_deployment:
+      name: epic-on-fhir-model-deployment
+      description: |
+        MLflow 3 deployment job for Epic on FHIR model. Triggered automatically on new model version registration.
+        Evaluates model against Epic FHIR sandbox, checks Unity Catalog tag for manual approval, then promotes
+        to "champion" and updates serving endpoint.
+      
+      # Deployment job requirements: model_name and model_version parameters
+      parameters:
+        - name: model_name
+          # Required for deployment jobs - no default
+        - name: model_version
+          # Required for deployment jobs - no default
+        - name: catalog
+          default: ${resources.schemas.epic_on_fhir_schema.catalog_name}
+        - name: schema
+          default: ${resources.schemas.epic_on_fhir_schema.name}
+        - name: endpoint_name
+          default: ${resources.model_serving_endpoints.epic_on_fhir_requests_endpoint.name}
+        - name: tags
+          default: '{"component": "epic-on-fhir", "environment": "${bundle.target}", "project": "${var.tags_project}", "owner": "${var.tags_developer}"}'
+      
+      # Prevent concurrent deployments (best practice)
+      max_concurrent_runs: 1
+      
+      # Shared serverless environment for all notebook tasks
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: ${var.serverless_environment_version}
+            dependencies:
+              - "mlflow>=3.0.0"
+              - "databricks-sdk>=0.20.0"
+              - "databricks-agents>=0.1.0"
+      
+      tasks:
+        # Task 1: Evaluate model against Epic FHIR sandbox
+        - task_key: evaluation
+          notebook_task:
+            notebook_path: ../src/evaluation.ipynb
+            base_parameters:
+              model_name: "{{job.parameters.model_name}}"
+              model_version: "{{job.parameters.model_version}}"
+          environment_key: default
+        
+        # Task 2: Check Unity Catalog tag for manual approval
+        # Task name MUST start with "approval" (MLflow 3 deployment job requirement)
+        - task_key: approval_check
+          depends_on:
+            - task_key: evaluation
+          notebook_task:
+            notebook_path: ../src/approval.ipynb
+            base_parameters:
+              model_name: "{{job.parameters.model_name}}"
+              model_version: "{{job.parameters.model_version}}"
+          environment_key: default
+        
+        # Task 3: Deploy approved model (promote to champion, update endpoint)
+        - task_key: deployment
+          depends_on:
+            - task_key: approval_check
+          notebook_task:
+            notebook_path: ../src/deployment.ipynb
+            base_parameters:
+              model_name: "{{job.parameters.model_name}}"
+              model_version: "{{job.parameters.model_version}}"
+              endpoint_name: "{{job.parameters.endpoint_name}}"
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              tags: "{{job.parameters.tags}}"
+          environment_key: default
