@@ -12,6 +12,8 @@
 # Phases:
 #   1. Deploy bundle infrastructure (schema, experiment, registered model, volume).
 #      The serving endpoint may fail on first deploy if no model version exists.
+#      After deploy, connects the deployment job to the registered model in UC
+#      (enables auto-trigger on new model version creation).
 #   2. Run the registration job to create a model version with "challenger" alias.
 #   3. Re-deploy the bundle so the serving endpoint picks up the model version.
 #   4. Auto-approve and run the deployment job to promote to "champion" and
@@ -48,7 +50,7 @@ DEPLOYMENT_JOB="epic_on_fhir_model_deployment"
 echo "============================================="
 echo "Epic on FHIR Bundle Deployment"
 echo "Target: ${TARGET}"
-echo "Time:   $(date -u +\"%Y-%m-%dT%H:%M:%SZ\")"
+echo "Time:   $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 echo "============================================="
 echo ""
 
@@ -71,6 +73,79 @@ else
     echo ""
     echo "  ⚠ Partial deployment (serving endpoint may have failed — expected on first run)."
     PHASE1_FULL_SUCCESS=false
+fi
+echo ""
+
+# --------------------------------------------------------------------------
+# Connect deployment job to registered model (idempotent)
+# --------------------------------------------------------------------------
+# Links the deployment job to the UC registered model so it:
+#   - Auto-triggers when a new model version is created
+#   - Shows on the model's Overview page in Unity Catalog
+# Uses bundle summary to resolve target-specific names (handles name_prefix).
+echo "  Connecting deployment job to registered model..."
+
+DEPLOY_JOB_NAME=""
+MODEL_FULL_NAME=""
+DEPLOY_JOB_ID=""
+
+BUNDLE_SUMMARY=$(databricks bundle summary -t "${TARGET}" --output json 2>/dev/null || true)
+
+if [ -n "${BUNDLE_SUMMARY}" ]; then
+    # Extract deployment job name (single-quoted heredoc: no bash interpretation)
+    DEPLOY_JOB_NAME=$(echo "${BUNDLE_SUMMARY}" | python3 << 'PYEOF'
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    job = data.get('resources', {}).get('jobs', {}).get('epic_on_fhir_model_deployment', {})
+    print(job.get('name', ''))
+except Exception:
+    pass
+PYEOF
+    )
+
+    # Extract registered model full name (catalog.schema.model)
+    MODEL_FULL_NAME=$(echo "${BUNDLE_SUMMARY}" | python3 << 'PYEOF'
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    model = data.get('resources', {}).get('registered_models', {}).get('epic_on_fhir_requests_model', {})
+    c = model.get('catalog_name', '')
+    s = model.get('schema_name', '')
+    n = model.get('name', '')
+    if c and s and n:
+        print('%s.%s.%s' % (c, s, n))
+except Exception:
+    pass
+PYEOF
+    )
+
+    # Look up the deployment job ID by name
+    if [ -n "${DEPLOY_JOB_NAME}" ]; then
+        DEPLOY_JOB_ID=$(databricks jobs list --name "${DEPLOY_JOB_NAME}" --output json 2>/dev/null | python3 << 'PYEOF'
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    jobs = data.get('jobs', [])
+    if jobs:
+        print(jobs[0].get('job_id', ''))
+except Exception:
+    pass
+PYEOF
+        )
+    fi
+
+    if [ -n "${DEPLOY_JOB_ID}" ] && [ -n "${MODEL_FULL_NAME}" ]; then
+        # Connect via MLflow REST API (idempotent — safe to re-run)
+        databricks api patch /api/2.0/mlflow/unity-catalog/registered-models/update \
+            --json "{\"name\": \"${MODEL_FULL_NAME}\", \"deployment_job_id\": \"${DEPLOY_JOB_ID}\"}" \
+            2>/dev/null || true
+        echo "  ✓ Deployment job (ID: ${DEPLOY_JOB_ID}) connected to model ${MODEL_FULL_NAME}"
+    else
+        echo "  ⚠ Could not resolve job ID or model name — connect manually via the model page."
+    fi
+else
+    echo "  ⚠ Could not read bundle summary — connect manually via the model page."
 fi
 echo ""
 
@@ -104,19 +179,19 @@ if [ -n "${RUN_ID}" ]; then
     RUN_OUTPUT=$(databricks jobs get-run "${RUN_ID}" --output json 2>/dev/null || true)
     if [ -n "${RUN_OUTPUT}" ]; then
         # Parse the notebook exit value from the run output
-        NOTEBOOK_RESULT=$(echo "${RUN_OUTPUT}" | python3 -c "
+        NOTEBOOK_RESULT=$(echo "${RUN_OUTPUT}" | python3 << 'PYEOF'
 import sys, json
 try:
     data = json.load(sys.stdin)
     for task in data.get('tasks', []):
-        result = task.get('state', {}).get('result_state', '')
         nb_output = task.get('notebook_output', {}).get('result', '')
         if nb_output:
             print(nb_output)
             break
 except Exception:
     pass
-" 2>/dev/null || true)
+PYEOF
+        )
         if [ -n "${NOTEBOOK_RESULT}" ]; then
             MODEL_NAME=$(echo "${NOTEBOOK_RESULT}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['model_name'])" 2>/dev/null || true)
             MODEL_VERSION=$(echo "${NOTEBOOK_RESULT}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['model_version'])" 2>/dev/null || true)
