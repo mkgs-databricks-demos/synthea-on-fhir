@@ -171,6 +171,87 @@ def mock_fhir_response():
 
 
 # ---------------------------------------------------------------------------
+# Notebook workflow fixtures (for test_*_notebook.py files)
+# ---------------------------------------------------------------------------
+
+FAKE_MODEL_NAME = "hls_fde.sandbox_open_epic_smart_on_fhir.sandbox_epic_on_fhir_requests"
+FAKE_MODEL_VERSION = "3"
+FAKE_ENDPOINT_NAME = "sandbox_epic_on_fhir_requests"
+FAKE_CATALOG = "hls_fde"
+FAKE_SCHEMA = "sandbox_open_epic_smart_on_fhir"
+FAKE_EXPERIMENT_NAME = "/Workspace/.experiments/[sandbox] epic_on_fhir_requests"
+
+
+@pytest.fixture()
+def mock_mlflow_client():
+    """Mock MlflowClient for notebook workflow tests."""
+    mock_client = MagicMock()
+
+    # Default: model version with no tags, no aliases
+    mock_mv = MagicMock()
+    mock_mv.version = FAKE_MODEL_VERSION
+    mock_mv.name = FAKE_MODEL_NAME
+    mock_mv.tags = {}
+    mock_mv.run_id = "fake-run-id-abc123"
+    mock_mv.aliases = []
+    mock_client.get_model_version.return_value = mock_mv
+
+    # get_model_version_by_alias: raise by default (no champion)
+    mock_client.get_model_version_by_alias.side_effect = Exception("RESOURCE_DOES_NOT_EXIST")
+
+    # set_registered_model_alias: no-op
+    mock_client.set_registered_model_alias.return_value = None
+
+    # set_model_version_tag: no-op
+    mock_client.set_model_version_tag.return_value = None
+
+    return mock_client
+
+
+@pytest.fixture()
+def mock_workspace_client():
+    """Mock WorkspaceClient for deployment notebook tests."""
+    mock_w = MagicMock()
+
+    # Mock serving endpoint with one served entity
+    mock_entity = MagicMock()
+    mock_entity.entity_name = FAKE_MODEL_NAME
+    mock_entity.entity_version = "2"  # Previous version
+    mock_entity.environment_vars = {
+        "EPIC_CLIENT_ID": "{{secrets/epic_on_fhir_oauth_keys/client_id}}",
+        "EPIC_PRIVATE_KEY": "{{secrets/epic_on_fhir_oauth_keys/private_key}}",
+        "EPIC_KID": "{{secrets/epic_on_fhir_oauth_keys/kid}}",
+        "ENABLE_OTEL_INSTRUMENTATION": "true",
+    }
+
+    mock_config = MagicMock()
+    mock_config.served_entities = [mock_entity]
+    mock_config.auto_capture_config = MagicMock()
+
+    mock_endpoint = MagicMock()
+    mock_endpoint.name = FAKE_ENDPOINT_NAME
+    mock_endpoint.config = mock_config
+    mock_endpoint.state = MagicMock()
+    mock_endpoint.state.ready = "READY"
+
+    mock_w.serving_endpoints.get.return_value = mock_endpoint
+    mock_w.serving_endpoints.update_config_and_wait.return_value = mock_endpoint
+
+    return mock_w
+
+
+@pytest.fixture()
+def mock_model_info():
+    """Mock MLflow model info returned by log_model or get_model_info."""
+    mock_info = MagicMock()
+    mock_info.model_uri = f"models:/{FAKE_MODEL_NAME}/{FAKE_MODEL_VERSION}"
+    mock_info.model_id = "fake-model-id-xyz789"
+    mock_info.run_id = "fake-run-id-abc123"
+    mock_info.registered_model_version = FAKE_MODEL_VERSION
+    return mock_info
+
+
+# ---------------------------------------------------------------------------
 # Pytest session configuration
 # ---------------------------------------------------------------------------
 
