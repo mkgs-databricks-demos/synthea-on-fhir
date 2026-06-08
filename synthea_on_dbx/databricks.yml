@@ -139,10 +139,10 @@ targets:
     mode: production
     presets:
       # name_prefix: '[${bundle.target} ${workspace.current_user.short_name}] '
-      source_linked_deployment: true
+      source_linked_deployment: false
       trigger_pause_status: PAUSED
       jobs_max_concurrent_runs: 1
-      pipelines_development: true
+      pipelines_development: false
       tags:
         parentProject: ${var.tags_parentProject}
         project: ${var.tags_project}

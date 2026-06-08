@@ -27,7 +27,7 @@ resources:
         - name: schema_use 
           default: ${resources.schemas.data_gen_schema.name}
         - name: volume_path_use
-          default: ${resources.volumes.synthetic_files_raw.volume_path}
+          default: /Volumes/${resources.volumes.synthetic_files_raw.catalog_name}/${resources.volumes.synthetic_files_raw.schema_name}/${resources.volumes.synthetic_files_raw.name}
         - name: min_records
           default: 1
         - name: max_records
@@ -36,6 +36,8 @@ resources:
           default: "true"
         - name: move_csv_to_landing
           default: "true"
+        - name: end_date
+          default: ""
 
       tasks:
         - task_key: set_up_check
@@ -115,13 +117,3 @@ resources:
         #       outcome: "true"
         #   notebook_task:
         #     notebook_path: ../src/3.0-move-synthea-files-to-landing.py
-
-
-
-
-
-
-
-
-
-

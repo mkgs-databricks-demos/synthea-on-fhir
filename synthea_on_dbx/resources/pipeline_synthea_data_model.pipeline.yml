@@ -5,7 +5,7 @@ resources:
       configuration:
         catalog_use: ${var.catalog}
         schema_use: ${resources.schemas.data_gen_schema.name}
-        volume_use: ${resources.volumes.landing_volume.volume_path}
+        volume_use: /Volumes/${resources.volumes.landing_volume.catalog_name}/${resources.volumes.landing_volume.schema_name}/${resources.volumes.landing_volume.name}
         volume_sub_path_use: ""
         resource_types: patients, encounters, claims_transactions, conditions,
           medications, claims, devices, payers, imaging_studies
