@@ -155,6 +155,12 @@ targets:
     workspace:
       host: https://fevm-hedis.cloud.databricks.com/
       root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    run_as: ${var.run_as_user}
+    permissions:
+      - user_name: matthew.giglia@databricks.com
+        level: CAN_MANAGE
+      - group_name: users
+        level: CAN_VIEW
     variables:
       catalog: ncqai
       schema: synthea_data_gen
