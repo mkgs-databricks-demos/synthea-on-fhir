@@ -197,28 +197,33 @@ runs fail (epoch 1+ write in Complete mode, detected as non-append).
 The `_typed_view` reads `_raw` directly as a streaming source -- it does NOT use CDF.
 Flow: `fhir_resources` -> `_raw` (PIVOT Complete mode) -> `_typed_view` (CAST) -> `{type}` (Auto CDC)
 
-Fix options for next session (in order of preference):
+Fix approach (being implemented on branch `mg-silver-mv-cdf`):
 
-1. **Replace `_raw` with a Materialized View (architecturally correct)**
-   Internal guidance: Silver layer with stateful aggregations (PIVOT with `first()`) should
-   use Materialized Views, not Streaming Tables. MVs use Enzyme for incremental processing,
-   eliminating the Complete output mode / append-only constraint entirely. Remove `_raw`
-   `@dp.table` decorator and replace with `@dp.materialized_view`. `_typed_view` reads the
-   MV as a batch source. `create_auto_cdc_flow` sources from the typed MV.
+**Live table + CDF** -- two-part fix:
 
-2. **`ignoreChanges=True` on `_typed_view` readStream (simpler immediate fix)**
-   Replace `option("skipChangeCommits", "true")` with `option("ignoreChanges", "true")`.
-   `ignoreChanges` covers file rewrites from any source including Complete-mode streaming
-   writes. Downside: re-reads all rewritten files on every trigger and may emit duplicate
-   rows. Auto CDC `sequence_by=_processing_time` + `{type}_uuid` key deduplication
-   absorbs duplicates correctly, so this is safe but wasteful.
+1. `_raw` changed from `@dp.table` (streaming, STREAM() source) to `@dp.table` (live table,
+   batch source). SDP treats a `@dp.table` as a live table when the decorated function returns
+   a batch DataFrame (no `STREAM()` or `readStream`). Enzyme handles incremental PIVOT
+   processing. PIVOT + CAST combined into one query (eliminates `_typed_view`).
+   CAUTION: Enzyme incrementalization of PIVOT with `first()` is not guaranteed. If Enzyme
+   falls back to full recompute, every pipeline update reprocesses all 2.1B rows in
+   fhir_resources. Test required to confirm Enzyme efficiency.
 
-3. **CDF streaming from `_raw`**
-   Read `_raw` via Change Data Feed (`readStream.option("readChangeFeed", "true")`). CDF
-   records only row-level changes as append-only new rows regardless of how the source was
-   written. Requires `_change_type` column handling and `apply_as_deletes` in the CDC flow.
+2. `_cdc_source` temporary view replaces `_typed_view`. Reads `_raw` via Change Data Feed
+   (`readStream.format("delta").option("readChangeFeed", "true")`), filtered to
+   `_change_type IN ('insert', 'update_postimage')`. CDF is always append-only regardless
+   of how the source table was modified (OPTIMIZE, MERGE, batch overwrite, streaming
+   Complete mode). Eliminates the DELTA_SOURCE_TABLE_IGNORE_CHANGES error entirely.
 
-Note: `num_output_rows` is NULL for all Auto CDC flows -- this is expected and documented.
+3. `create_auto_cdc_flow` updated:
+   - `source`: `{type}_cdc_source` (was `{type}_typed`)
+   - `sequence_by`: `col("_commit_timestamp")` (was `col("_processing_time")`)
+   - `except_column_list`: `["_change_type", "_commit_version", "_commit_timestamp"]`
+
+The target `{type}` streaming table is unchanged -- it remains a `create_streaming_table()`
+target for `create_auto_cdc_flow`. Only the source path changes.
+
+Note: `num_output_rows` is NULL for all Auto CDC flows -- expected and documented behavior.
 Only `num_upserted_rows` and `num_deleted_rows` are captured for CDC queries.
 
 ### synthea_job_id variable lookup
@@ -286,12 +291,11 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 - **mkgs-prod service principal**: applicationId `47c0365e-b1af-429c-b56d-07cfb18b5dc7`
   needs `CAN_EDIT` added to `hedis.permissions` block manually.
 
-- **Silver incremental runs fail with DELTA_SOURCE_TABLE_IGNORE_CHANGES (OPEN)**: PIVOT
-  with `first()` forces Complete output mode on `_raw`, which is a non-append streaming
-  write. `skipChangeCommits` does not cover this. Three fix options documented above in
-  order of preference: (1) MV for `_raw` layer (architecturally correct per internal
-  guidance), (2) `ignoreChanges=True` (simpler, handles duplicates via CDC dedup),
-  (3) CDF streaming from `_raw`. Requires another full refresh after fix is deployed.
+- **Silver incremental runs fail with DELTA_SOURCE_TABLE_IGNORE_CHANGES (IN PROGRESS)**:
+  Fix being implemented on branch `mg-silver-mv-cdf`. `_raw` becomes a live table (batch
+  PIVOT + CAST); `_typed_view` replaced with `_cdc_source` CDF view. Requires a full
+  refresh after deployment. Enzyme efficiency for PIVOT `first()` TBD -- monitor first
+  incremental run duration to confirm Enzyme is incrementalizing (not full recomputing).
 
 - **Schema evolution test**: not yet performed. Plan: run incremental update after
   adding new synthea population; verify new columns appear in `fhir_resource_schemas`

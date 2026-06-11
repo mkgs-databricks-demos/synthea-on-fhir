@@ -3,22 +3,28 @@
 Architecture (three-step pattern per resource type):
 
     fhir_resources
-        -> {resource_type}_raw   (PRIVATE streaming table: PIVOT, all columns VARIANT)
-        -> {resource_type}_typed (Temporary view: CAST each column to its inferred type)
-        -> {resource_type}       (Target streaming table: Auto CDC Type 1 upserts)
+        -> {resource_type}_raw        (Live table: PIVOT + CAST combined, typed columns,
+                                       CDF enabled. SDP/Enzyme handles incremental refresh.)
+        -> {resource_type}_cdc_source (Temporary view: CDF stream from _raw filtered to
+                                       insert + update_postimage events only)
+        -> {resource_type}            (Target streaming table: Auto CDC Type 1 upserts)
 
-The private _raw table is append-only and pipeline-internal (not published to the
-catalog). It isolates the PIVOT step and adds a _processing_time column for CDC
-sequencing.
+The _raw live table is backed by a batch PIVOT + CAST query over fhir_resources. SDP
+treats it as a live table (not streaming) because the source is a batch read (no
+STREAM()). Enzyme handles incremental processing where possible. CDF is enabled on _raw
+so the downstream Auto CDC flow reads only row-level change events -- CDF is always
+append-only regardless of how the underlying table was written (OPTIMIZE, MERGE, batch
+overwrite, streaming Complete mode), which eliminates the
+DELTA_SOURCE_TABLE_IGNORE_CHANGES error seen with direct streaming reads.
 
-The _typed temporary view performs the VARIANT-to-typed CAST and serves as the
-source for the Auto CDC flow.
+The _cdc_source temporary view reads _raw via Change Data Feed, filtering to insert and
+update_postimage events. _commit_timestamp from CDF drives Auto CDC sequencing.
 
 The final silver table is a target streaming table that receives SCD Type 1
 (upsert/overwrite) changes via create_auto_cdc_flow. This means:
   - New resources are inserted.
   - Updated resources overwrite existing rows (matched by {resource_type}_uuid).
-  - Ordering is determined by _processing_time.
+  - Ordering is determined by _commit_timestamp from the CDF stream.
 
 Schema evolution is handled automatically: when new columns or changed struct
 types appear in fhir_resource_schemas, the table definitions change and DLT
@@ -205,12 +211,23 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
     # Log schema evolution if applicable
     _detect_schema_evolution(resource_type, columns)
 
-    # --- Private raw table: append-only PIVOT with VARIANT columns ----------
+    # --- Live table: PIVOT + CAST with typed columns, Enzyme-managed ----------
+    # SDP treats this as a live table (not streaming) because the source is a
+    # batch read of fhir_resources (no STREAM()). Enzyme handles incremental
+    # processing -- only new fhir_resources rows are processed per update where
+    # possible. PIVOT and CAST are combined in one query, eliminating the
+    # separate _typed_view step.
+    #
+    # CDF is enabled so _cdc_source reads only row-level change events from this
+    # table. CDF is always append-only regardless of how the underlying table is
+    # written (OPTIMIZE, MERGE, batch overwrite), which eliminates the
+    # DELTA_SOURCE_TABLE_IGNORE_CHANGES error seen with direct streaming reads.
+    cast_sql = _build_cast_sql(columns, rt_lower)
     @dp.table(
         name=f"{rt_lower}_raw",
         comment=(
-            f"Private intermediate FHIR {resource_type} records. "
-            f"PIVOT of fhir_resources with all columns as VARIANT."
+            f"Live table: typed PIVOT of fhir_resources for {resource_type}. "
+            f"PIVOT + CAST combined; source for Auto CDC via Change Data Feed."
         ),
         table_properties={
             "delta.enableChangeDataFeed":          "true",
@@ -218,49 +235,48 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
             "delta.enableRowTracking":             "true",
             "delta.autoOptimize.optimizeWrite":    "true",
             "delta.autoOptimize.autoCompact":      "true",
-            # autoCompact and Predictive Optimization both issue OPTIMIZE transactions
-            # on this table (file rewrites). These are tolerated by _typed_view, which
-            # reads this table via spark.readStream.option("skipChangeCommits", "true").
-            # skipChangeCommits silently skips compaction commits without re-emitting
-            # rows or causing duplicates -- unlike ignoreChanges which re-reads rewritten
-            # files and requires downstream deduplication.
-            # Note: SQL STREAM() syntax does not support streaming options, which is why
-            # private=True is omitted here -- _typed_view must use the Python readStream
-            # API (which requires a catalog-published table).
+            # autoCompact and PO run OPTIMIZE on this table. This is safe because
+            # _cdc_source reads via CDF, which is append-only and unaffected by
+            # OPTIMIZE (OPTIMIZE does not produce CDF change events).
             "delta.enableVariantShredding":        "true",
             "pipelines.channel":                   "PREVIEW",
             "delta.feature.variantType-preview":   "supported",
             "pipelines.reset.allowed":             "true",
-            "quality": "bronze",
+            "quality": "silver",
         },
     )
     def _raw():
         return spark.sql(f"""
-            SELECT *, current_timestamp() AS _processing_time FROM (
+            SELECT
+                {cast_sql}
+            FROM (
                 SELECT
                     resource_uuid AS {rt_lower}_uuid,
                     bundle_uuid,
                     fullUrl AS {rt_lower}_url,
                     key,
                     value
-                FROM STREAM({_catalog}.{_schema}.fhir_resources)
+                FROM {_catalog}.{_schema}.fhir_resources
                 WHERE resourceType = '{resource_type}'{skip_filter}
             ) PIVOT (
                 first(value) FOR key IN ({keys_sql})
             )
         """)
 
-    # --- Typed temporary view: CAST from VARIANT to inferred types ----------
-    cast_sql = _build_cast_sql(columns, rt_lower)
-
-    @dp.temporary_view(name=f"{rt_lower}_typed")
-    def _typed_view():
-        return spark.sql(f"""
-            SELECT
-                {cast_sql},
-                _processing_time
-            FROM STREAM({rt_lower}_raw)
-        """)
+    # --- CDF source view: reads _raw via Change Data Feed -------------------
+    # CDF records are always append-only new rows regardless of how the source
+    # table was written. Filtering to insert + update_postimage excludes pre-image
+    # rows that would otherwise produce spurious upserts in the Auto CDC target.
+    # _commit_timestamp is used as the Auto CDC sequence column.
+    @dp.temporary_view(name=f"{rt_lower}_cdc_source")
+    def _cdc_source():
+        return (
+            spark.readStream
+            .format("delta")
+            .option("readChangeFeed", "true")
+            .table(f"{_catalog}.{_schema}.{rt_lower}_raw")
+            .filter(col("_change_type").isin("insert", "update_postimage"))
+        )
 
     # --- Target silver table: Auto CDC Type 1 upserts ----------------------
     schema_ddl = _build_schema_ddl(columns, resource_type)
@@ -290,10 +306,10 @@ def _create_resource_tables(resource_type: str, columns: list[dict]) -> None:
 
     dp.create_auto_cdc_flow(
         target=rt_lower,
-        source=f"{rt_lower}_typed",
+        source=f"{rt_lower}_cdc_source",
         keys=[f"{rt_lower}_uuid"],
-        sequence_by=col("_processing_time"),
-        except_column_list=["_processing_time"],
+        sequence_by=col("_commit_timestamp"),
+        except_column_list=["_change_type", "_commit_version", "_commit_timestamp"],
         stored_as_scd_type=1,
     )
 
