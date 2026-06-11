@@ -2,7 +2,7 @@
 
 Canonical long-term memory for the FHIR Declarative Pipeline bundle.
 Read this at the start of every session before making changes.
-Last updated: 2026-06-11 (skipChangeCommits + PO fix)
+Last updated: 2026-06-11 (skipChangeCommits + PO fix; STREAMING UPDATE outputMode=Complete issue identified, fix pending)
 
 ---
 
@@ -179,6 +179,32 @@ Fix applied in `silver.py`:
 Side effect: 24 `{type}_raw` tables are now published to the schema (previously private/
 pipeline-internal). Naming convention makes them clearly intermediate.
 
+### UNRESOLVED: STREAMING UPDATE outputMode=Complete breaks skipChangeCommits (next session)
+
+The PIVOT in `_raw` uses `first()`, an aggregation function. Spark Structured Streaming
+writes aggregation results in **Complete output mode**, which rewrites the entire
+aggregation state on every trigger. This is recorded in the Delta log as:
+
+    STREAMING UPDATE (outputMode=Complete)
+
+`skipChangeCommits=true` does NOT cover this case. It handles OPTIMIZE/compaction
+transactions but not streaming Complete-mode writes. The incremental run therefore fails
+with `DELTA_SOURCE_TABLE_IGNORE_CHANGES` on every `{type}` CDC flow reading from `_raw`.
+
+Full refresh succeeds (epoch 0 is the initial write, looks append-only). Incremental
+runs fail (epoch 1+ write in Complete mode, detected as non-append).
+
+The `_typed_view` reads `_raw` directly as a streaming source -- it does NOT use CDF.
+Flow: `fhir_resources` -> `_raw` (PIVOT Complete mode) -> `_typed_view` (CAST) -> `{type}` (Auto CDC)
+
+Fix for next session: replace `option("skipChangeCommits", "true")` with
+`option("ignoreChanges", "true")` in the `_typed_view` readStream.
+`ignoreChanges` re-reads rewritten files (may emit duplicate rows), but the Auto CDC
+`sequence_by=_processing_time` and `{type}_uuid` key deduplication will absorb them
+correctly. The CDF on `_raw` (already enabled via `delta.enableChangeDataFeed`) could
+also be used as a cleaner alternative -- CDF records only row-level changes as new rows,
+which is always append-only regardless of how the source table was written.
+
 ### synthea_job_id variable lookup
 
 `databricks.yml` resolves the synthea job ID by display name at validate/deploy time:
@@ -244,10 +270,13 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 - **mkgs-prod service principal**: applicationId `47c0365e-b1af-429c-b56d-07cfb18b5dc7`
   needs `CAN_EDIT` added to `hedis.permissions` block manually.
 
-- **Silver pipeline needs full refresh to recover**: update `23939d4c` failed on all 24
-  CDC target flows before the `skipChangeCommits` fix was deployed. The streaming
-  checkpoints are poisoned. Run a full refresh of `fhir_resource_silver_etl` (pipeline ID
-  `aace6745-bdbd-4568-964b-5e78b40ac11f`) before the next incremental run.
+- **Silver incremental runs fail with DELTA_SOURCE_TABLE_IGNORE_CHANGES (OPEN)**: root
+  cause is PIVOT writing `_raw` in Complete output mode (aggregation with `first()`). Fix
+  for next session: change `option("skipChangeCommits", "true")` to
+  `option("ignoreChanges", "true")` in the `_typed_view` readStream in `silver.py`.
+  Alternatively, switch `_typed_view` to read from `_raw` CDF stream instead of the
+  table directly. Requires another full refresh after fix is deployed.
+  See "UNRESOLVED: STREAMING UPDATE outputMode=Complete" section above.
 
 - **Schema evolution test**: not yet performed. Plan: run incremental update after
   adding new synthea population; verify new columns appear in `fhir_resource_schemas`
