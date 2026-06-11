@@ -2,7 +2,7 @@
 
 Canonical long-term memory for the FHIR Declarative Pipeline bundle.
 Read this at the start of every session before making changes.
-Last updated: 2026-06-11
+Last updated: 2026-06-11 (skipChangeCommits + PO fix)
 
 ---
 
@@ -66,8 +66,10 @@ Last updated: 2026-06-11
 ### 3. fhir_resource_silver_etl
 - Reads `fhir_resource_schemas` to discover resource types at pipeline planning time
 - Per resource type, three objects:
-  - `{type}_raw` (private streaming table) -- PIVOT of `fhir_resources` key-value rows into VARIANT columns
-  - `{type}_typed` (temporary view) -- CASTs each VARIANT column to its inferred struct type
+  - `{type}_raw` (public streaming table) -- PIVOT of `fhir_resources` key-value rows into VARIANT columns.
+    Published to catalog (not private) so `_typed_view` can address it via `spark.readStream.table()`.
+  - `{type}_typed` (temporary view) -- reads `{type}_raw` via `spark.readStream.option("skipChangeCommits", "true")`
+    and CASTs each VARIANT column to its inferred struct type via `selectExpr`
   - `{type}` (streaming table) -- Auto CDC Type 1 upserts keyed on `{type}_uuid`
 - Config keys: `pipeline.catalog_use`, `pipeline.schema_use`
 - Must run AFTER ingestion ETL on first deployment (two-pass architecture)
@@ -114,7 +116,11 @@ Last updated: 2026-06-11
     delta.feature.variantType-preview:   supported
     pipelines.reset.allowed:             true
 
-All properties verified correct across all 5 bronze tables and all 24 silver tables as of 2026-06-11.
+Applied to all bronze tables, all 24 silver CDC target tables, and all 24 `_raw` intermediate tables.
+Verified correct as of 2026-06-11.
+
+Note: `_raw` tables include `autoCompact` and `optimizeWrite` even though they are streaming sources.
+This is safe because `_typed_view` uses `skipChangeCommits=true` (see below).
 
 ### ExplanationOfBenefit PIVOT fix (silver.py)
 
@@ -134,6 +140,44 @@ the PIVOT inner SELECT:
     -- skip_filter = "\n                AND key NOT IN ('contained', 'item')"
 
 Result: EOB PIVOT now completes in ~13 seconds.
+
+### skipChangeCommits on _raw streaming sources (silver.py)
+
+Predictive Optimization (PO) automatically runs OPTIMIZE on all SDP UC managed tables,
+including `_raw` intermediate tables. OPTIMIZE is a file-rewrite transaction. Structured
+Streaming treats file rewrites as non-append operations and fails downstream streams with:
+
+    "failed due to a non-append only streaming source"
+
+This affected all 24 `{type}` CDC flows (each reads `FROM STREAM({type}_typed)` which
+reads `_raw`). Root cause confirmed: every `_raw` flow completed; every CDC target flow
+failed immediately after.
+
+Important: PO cannot be disabled for SDP UC managed tables. Even with schema-level
+`DISABLE PREDICTIVE OPTIMIZATION`, PO still manages SDP pipeline table maintenance
+(confirmed by internal account alert, April 2025). `pipelines.autoOptimize.managed = false`
+is no longer respected.
+
+Fix applied in `silver.py`:
+1. `private=True` removed from `@dp.table` on `_raw` -- private tables are not in the UC
+   catalog and cannot be addressed by `spark.readStream.table()`. Public tables are required
+   to use the Python readStream API.
+2. `_typed_view` rewritten from `spark.sql("... FROM STREAM({rt_lower}_raw)")` to:
+
+       spark.readStream
+           .option("skipChangeCommits", "true")
+           .table(f"{_catalog}.{_schema}.{rt_lower}_raw")
+           .selectExpr(*_cast_exprs)
+
+   SQL `STREAM()` syntax has no options interface; Python readStream API is required.
+3. `skipChangeCommits` silently skips OPTIMIZE/compaction commits without re-emitting
+   rows. Unlike `ignoreChanges` (which re-reads rewritten files and produces duplicates),
+   `skipChangeCommits` is correct here because OPTIMIZE does not change row content.
+4. `autoOptimize.autoCompact` and `autoOptimize.optimizeWrite` restored to `_raw`
+   table properties since `skipChangeCommits` fully tolerates the resulting transactions.
+
+Side effect: 24 `{type}_raw` tables are now published to the schema (previously private/
+pipeline-internal). Naming convention makes them clearly intermediate.
 
 ### synthea_job_id variable lookup
 
@@ -199,6 +243,11 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 
 - **mkgs-prod service principal**: applicationId `47c0365e-b1af-429c-b56d-07cfb18b5dc7`
   needs `CAN_EDIT` added to `hedis.permissions` block manually.
+
+- **Silver pipeline needs full refresh to recover**: update `23939d4c` failed on all 24
+  CDC target flows before the `skipChangeCommits` fix was deployed. The streaming
+  checkpoints are poisoned. Run a full refresh of `fhir_resource_silver_etl` (pipeline ID
+  `aace6745-bdbd-4568-964b-5e78b40ac11f`) before the next incremental run.
 
 - **Schema evolution test**: not yet performed. Plan: run incremental update after
   adding new synthea population; verify new columns appear in `fhir_resource_schemas`
