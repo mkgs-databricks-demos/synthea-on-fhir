@@ -2,7 +2,7 @@
 
 Canonical long-term memory for the FHIR Declarative Pipeline bundle.
 Read this at the start of every session before making changes.
-Last updated: 2026-06-11 (skipChangeCommits + PO fix; STREAMING UPDATE outputMode=Complete issue identified, fix pending)
+Last updated: 2026-06-11 (FULLY STREAMING silver rewrite — PIVOT eliminated, VARIANT path extraction architecture)
 
 ---
 
@@ -55,24 +55,27 @@ Last updated: 2026-06-11 (skipChangeCommits + PO fix; STREAMING UPDATE outputMod
 
 ### 2. fhir_bundle_ingestion_etl
 - Source: landing volume (output of mover)
-- Five output tables:
-  - `fhir_bronze` -- raw text ingestion
+- Six output tables:
+  - `fhir_bronze` -- raw text ingestion via Auto Loader
   - `fhir_bronze_variant` -- VARIANT-parsed JSON
   - `bundle_meta` -- bundle-level metadata
-  - `fhir_resources` -- exploded key-value rows (2.1B rows across 24 resource types)
+  - `fhir_resources_variant` -- **one row per resource with full resource VARIANT** (universal staging)
+  - `fhir_resources` -- exploded key-value rows (2.1B rows across 24 resource types, retained for schema discovery)
   - `fhir_resource_schemas` -- one row per resourceType/column with inferred VARIANT and struct schemas (288 rows)
 - Config keys: `pipeline.landing_volume_path`, `pipeline.catalog_use`, `pipeline.schema_use`
+- `fhir_resources_variant` is the primary source for the silver pipeline AND future FHIR server loading
 
-### 3. fhir_resource_silver_etl
+### 3. fhir_resource_silver_etl (FULLY STREAMING — no materialized views)
 - Reads `fhir_resource_schemas` to discover resource types at pipeline planning time
-- Per resource type, three objects:
-  - `{type}_raw` (public streaming table) -- PIVOT of `fhir_resources` key-value rows into VARIANT columns.
-    Published to catalog (not private) so `_typed_view` can address it via `spark.readStream.table()`.
-  - `{type}_typed` (temporary view) -- reads `{type}_raw` via `spark.readStream.option("skipChangeCommits", "true")`
-    and CASTs each VARIANT column to its inferred struct type via `selectExpr`
-  - `{type}` (streaming table) -- Auto CDC Type 1 upserts keyed on `{type}_uuid`
+- Per resource type, TWO objects (previously three):
+  - `{type}_extract` (temporary view) -- `STREAM(fhir_resources_variant)` filtered by
+    resourceType, VARIANT path extraction (`resource:fieldName`) + CAST to typed columns.
+    Pure append-mode streaming, no aggregation, no shuffle.
+  - `{type}` (streaming table) -- Auto CDC Type 1 upserts keyed on `{type}_uuid`,
+    sequenced by `ingest_time`
 - Config keys: `pipeline.catalog_use`, `pipeline.schema_use`
 - Must run AFTER ingestion ETL on first deployment (two-pass architecture)
+- **ELIMINATED**: `{type}_raw` (MV/live table), `{type}_cdc_source` (CDF bridge), PIVOT operation
 
 ---
 
