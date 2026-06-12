@@ -116,115 +116,72 @@ Last updated: 2026-06-11 (FULLY STREAMING silver rewrite — PIVOT eliminated, V
     delta.autoOptimize.autoCompact:      true
     delta.enableVariantShredding:        true
     pipelines.channel:                   PREVIEW
-    delta.feature.variantType-preview:   supported
     pipelines.reset.allowed:             true
 
-Applied to all bronze tables, all 24 silver CDC target tables, and all 24 `_raw` intermediate tables.
-Verified correct as of 2026-06-11.
+Applied to all bronze tables (including `fhir_resources_variant`) and all 24 silver
+CDC target tables. Verified correct as of 2026-06-11.
 
-Note: `_raw` tables include `autoCompact` and `optimizeWrite` even though they are streaming sources.
-This is safe because `_typed_view` uses `skipChangeCommits=true` (see below).
+Note: `delta.feature.variantType-preview` has been removed. With
+`delta.enableVariantShredding: true`, VARIANT is fully supported and the
+preview feature flag is no longer needed. Existing tables that still carry
+the property are unaffected (it becomes a no-op), but new table definitions
+should omit it.
 
-### ExplanationOfBenefit PIVOT fix (silver.py)
+### Fully streaming silver architecture (PIVOT eliminated)
 
-The EOB PIVOT was hanging indefinitely (90+ min, OOM on serverless) because
-`fhir_resources` contains `item` (~6 KB/row x 14.6M rows = ~90 GB) and
-`contained` (~552 bytes/row x 14.6M = ~8 GB) keys that entered the shuffle
-even though they were excluded from the PIVOT output columns.
+The silver pipeline was completely rewritten to eliminate all materialized views,
+PIVOT operations, CDF bridging, and the associated streaming compatibility issues.
 
-Fix in `_create_resource_tables` in `silver.py`:
+**Previous architecture (DEPRECATED):**
 
-    _PIVOT_SKIP_COLUMNS: dict[str, set[str]] = {"ExplanationOfBenefit": {"item", "contained"}}
+    fhir_resources (key-value EAV, 2.1B rows)
+      -> {type}_raw (PIVOT + first() = MV/live table, Complete output mode)
+      -> {type}_cdc_source (CDF bridge to get append-only stream)
+      -> {type} (Auto CDC Type 1)
 
-`skip_filter` is built from the skip set and injected into the WHERE clause of
-the PIVOT inner SELECT:
+Problems solved:
+- PIVOT `first()` forced Complete output mode, breaking downstream streaming
+- `skipChangeCommits` did not cover streaming Complete-mode writes
+- Enzyme incrementalization of PIVOT not guaranteed (risk of 2.1B row recompute)
+- EOB PIVOT OOM from large keys (`item` ~90 GB, `contained` ~8 GB) in shuffle
+- 24 orphaned `_raw` tables published to schema as side effect
 
-    WHERE resourceType = '{resource_type}'{skip_filter}
-    -- skip_filter = "\n                AND key NOT IN ('contained', 'item')"
+**New architecture (CURRENT):**
 
-Result: EOB PIVOT now completes in ~13 seconds.
+    fhir_resources_variant (one row per resource, full VARIANT)
+      -> {type}_extract (temporary view: streaming filter + VARIANT path extraction + CAST)
+      -> {type} (Auto CDC Type 1, sequenced by ingest_time)
 
-### skipChangeCommits on _raw streaming sources (silver.py)
+Key properties:
+- Fully streaming end-to-end (no batch/MV intermediary)
+- No aggregation, no shuffle -- VARIANT path extraction (`resource:fieldName`) is per-row
+- No OOM risk -- even large fields (EOB.item, EOB.contained) are just column projections
+- `_EXTRACT_SKIP_COLUMNS` is empty by default (all columns now includable)
+- No DELTA_SOURCE_TABLE_IGNORE_CHANGES errors (no Complete mode, no file rewrites in path)
+- No dependency on Enzyme incrementalization behavior
+- Simpler architecture: 2 objects per type (was 3)
 
-Predictive Optimization (PO) automatically runs OPTIMIZE on all SDP UC managed tables,
-including `_raw` intermediate tables. OPTIMIZE is a file-rewrite transaction. Structured
-Streaming treats file rewrites as non-append operations and fails downstream streams with:
+### fhir_resources_variant as universal staging layer
 
-    "failed due to a non-append only streaming source"
+`fhir_resources_variant` stores one row per FHIR resource with the complete resource
+document preserved as VARIANT. It serves three downstream purposes:
 
-This affected all 24 `{type}` CDC flows (each reads `FROM STREAM({type}_typed)` which
-reads `_raw`). Root cause confirmed: every `_raw` flow completed; every CDC target flow
-failed immediately after.
+1. **Silver analytics** -- streaming filter by resourceType + VARIANT path extraction
+2. **FHIR server loading** -- NDJSON export for HAPI `$import`, or direct VARIANT->JSONB
+   for Aidbox on Databricks Lakebase
+3. **Ad-hoc queries** -- `SELECT resource:fieldName FROM fhir_resources_variant WHERE ...`
 
-Important: PO cannot be disabled for SDP UC managed tables. Even with schema-level
-`DISABLE PREDICTIVE OPTIMIZATION`, PO still manages SDP pipeline table maintenance
-(confirmed by internal account alert, April 2025). `pipelines.autoOptimize.managed = false`
-is no longer respected.
+This aligns with how FHIR servers store data (HAPI JPA: resource as CLOB/blob;
+Aidbox: resource as JSONB column). The document-per-row model is the natural
+staging format for both analytical and transactional FHIR workloads.
 
-Fix applied in `silver.py`:
-1. `private=True` removed from `@dp.table` on `_raw` -- private tables are not in the UC
-   catalog and cannot be addressed by `spark.readStream.table()`. Public tables are required
-   to use the Python readStream API.
-2. `_typed_view` rewritten from `spark.sql("... FROM STREAM({rt_lower}_raw)")` to:
+### fhir_resources retained for schema discovery only
 
-       spark.readStream
-           .option("skipChangeCommits", "true")
-           .table(f"{_catalog}.{_schema}.{rt_lower}_raw")
-           .selectExpr(*_cast_exprs)
-
-   SQL `STREAM()` syntax has no options interface; Python readStream API is required.
-3. `skipChangeCommits` silently skips OPTIMIZE/compaction commits without re-emitting
-   rows. Unlike `ignoreChanges` (which re-reads rewritten files and produces duplicates),
-   `skipChangeCommits` is correct here because OPTIMIZE does not change row content.
-4. `autoOptimize.autoCompact` and `autoOptimize.optimizeWrite` restored to `_raw`
-   table properties since `skipChangeCommits` fully tolerates the resulting transactions.
-
-Side effect: 24 `{type}_raw` tables are now published to the schema (previously private/
-pipeline-internal). Naming convention makes them clearly intermediate.
-
-### UNRESOLVED: STREAMING UPDATE outputMode=Complete breaks skipChangeCommits (next session)
-
-The PIVOT in `_raw` uses `first()`, an aggregation function. Spark Structured Streaming
-writes aggregation results in **Complete output mode**, which rewrites the entire
-aggregation state on every trigger. This is recorded in the Delta log as:
-
-    STREAMING UPDATE (outputMode=Complete)
-
-`skipChangeCommits=true` does NOT cover this case. It handles OPTIMIZE/compaction
-transactions but not streaming Complete-mode writes. The incremental run therefore fails
-with `DELTA_SOURCE_TABLE_IGNORE_CHANGES` on every `{type}` CDC flow reading from `_raw`.
-
-Full refresh succeeds (epoch 0 is the initial write, looks append-only). Incremental
-runs fail (epoch 1+ write in Complete mode, detected as non-append).
-
-The `_typed_view` reads `_raw` directly as a streaming source -- it does NOT use CDF.
-Flow: `fhir_resources` -> `_raw` (PIVOT Complete mode) -> `_typed_view` (CAST) -> `{type}` (Auto CDC)
-
-Fix approach (being implemented on branch `mg-silver-mv-cdf`):
-
-**Live table + CDF** -- two-part fix:
-
-1. `_raw` changed from `@dp.table` (streaming, STREAM() source) to `@dp.table` (live table,
-   batch source). SDP treats a `@dp.table` as a live table when the decorated function returns
-   a batch DataFrame (no `STREAM()` or `readStream`). Enzyme handles incremental PIVOT
-   processing. PIVOT + CAST combined into one query (eliminates `_typed_view`).
-   CAUTION: Enzyme incrementalization of PIVOT with `first()` is not guaranteed. If Enzyme
-   falls back to full recompute, every pipeline update reprocesses all 2.1B rows in
-   fhir_resources. Test required to confirm Enzyme efficiency.
-
-2. `_cdc_source` temporary view replaces `_typed_view`. Reads `_raw` via Change Data Feed
-   (`readStream.format("delta").option("readChangeFeed", "true")`), filtered to
-   `_change_type IN ('insert', 'update_postimage')`. CDF is always append-only regardless
-   of how the source table was modified (OPTIMIZE, MERGE, batch overwrite, streaming
-   Complete mode). Eliminates the DELTA_SOURCE_TABLE_IGNORE_CHANGES error entirely.
-
-3. `create_auto_cdc_flow` updated:
-   - `source`: `{type}_cdc_source` (was `{type}_typed`)
-   - `sequence_by`: `col("_commit_timestamp")` (was `col("_processing_time")`)
-   - `except_column_list`: `["_change_type", "_commit_version", "_commit_timestamp"]`
-
-The target `{type}` streaming table is unchanged -- it remains a `create_streaming_table()`
-target for `create_auto_cdc_flow`. Only the source path changes.
+`fhir_resources` (key-value EAV, 2.1B rows) is retained because
+`fhir_resource_schemas` depends on it (`schema_of_variant_agg(value) GROUP BY
+resourceType, key`). It is NOT in the streaming path for silver tables.
+Future consideration: derive schemas directly from `fhir_resources_variant`
+using `schema_of_variant(resource)` to eliminate the EAV table entirely.
 
 Note: `num_output_rows` is NULL for all Auto CDC flows -- expected and documented behavior.
 Only `num_upserted_rows` and `num_deleted_rows` are captured for CDC queries.
@@ -287,6 +244,11 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 - **Orphaned event log table**: `ncqai.dev_matthew_giglia_fhir.fhir_declarative_pipeline_etl_event_log`
   no longer written to. Safe to drop.
 
+- **Orphaned `_raw` tables (24)**: The previous silver architecture published 24
+  `{type}_raw` tables to the schema. These are no longer produced by the new pipeline.
+  After successful full refresh of the new silver pipeline, drop all `*_raw` tables
+  from `ncqai.dev_matthew_giglia_fhir`.
+
 - **synthetic_fhir_etl_orchestration_job missing permissions block**: omitted
   from `synthetic_fhir_etl_orchestration.job.yml` during write. Add manually
   to match the other job files.
@@ -294,15 +256,24 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 - **mkgs-prod service principal**: applicationId `47c0365e-b1af-429c-b56d-07cfb18b5dc7`
   needs `CAN_EDIT` added to `hedis.permissions` block manually.
 
-- **Silver incremental runs fail with DELTA_SOURCE_TABLE_IGNORE_CHANGES (IN PROGRESS)**:
-  Fix being implemented on branch `mg-silver-mv-cdf`. `_raw` becomes a live table (batch
-  PIVOT + CAST); `_typed_view` replaced with `_cdc_source` CDF view. Requires a full
-  refresh after deployment. Enzyme efficiency for PIVOT `first()` TBD -- monitor first
-  incremental run duration to confirm Enzyme is incrementalizing (not full recomputing).
+- ~~**Silver incremental runs fail with DELTA_SOURCE_TABLE_IGNORE_CHANGES**~~:
+  RESOLVED. The fully-streaming rewrite eliminates PIVOT, Complete output mode,
+  and all DELTA_SOURCE_TABLE_IGNORE_CHANGES errors. Branch `mg-silver-mv-cdf`
+  is superseded by the VARIANT path extraction approach (committed to main).
+
+- **Deploy + full refresh required**: After deploying the new silver pipeline:
+  1. Full refresh ingestion pipeline (to populate `fhir_resources_variant`)
+  2. Full refresh silver pipeline (to rebuild all 24 resource tables from new source)
+  3. Drop orphaned `_raw` tables after verifying silver tables are correct
 
 - **Schema evolution test**: not yet performed. Plan: run incremental update after
   adding new synthea population; verify new columns appear in `fhir_resource_schemas`
   and silver tables without manual full refresh.
+
+- **Lakebase/HAPI loading job (FUTURE)**: Design a downstream job that exports
+  `fhir_resources_variant` as NDJSON for HAPI `$import`, or writes VARIANT->JSONB
+  directly to Aidbox on Databricks Lakebase. Architecture validated via research
+  (HAPI stores resources as document blobs; Aidbox uses JSONB per row).
 
 ---
 
@@ -319,8 +290,8 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 |---|---|
 | `src/fhir_bundle_mover/transformations/file_tracker.py` | Auto Loader + UDF file mover; `file_tracker` streaming table |
 | `src/fhir_bundle_ingestion_etl/transformations/bronze.py` | `fhir_bronze`, `fhir_bronze_variant` |
-| `src/fhir_bundle_ingestion_etl/transformations/resources.py` | `bundle_meta`, `fhir_resources`, `fhir_resource_schemas` |
-| `src/fhir_resource_silver_etl/transformations/silver.py` | Dynamic silver table generation; PIVOT + CDC per resource type |
+| `src/fhir_bundle_ingestion_etl/transformations/resources.py` | `fhir_resources_variant`, `bundle_meta`, `fhir_resources`, `fhir_resource_schemas` |
+| `src/fhir_resource_silver_etl/transformations/silver.py` | Dynamic silver table generation; VARIANT path extraction + Auto CDC per resource type |
 | `resources/fhir_bundle_mover.pipeline.yml` | Mover pipeline config |
 | `resources/fhir_bundle_ingestion_etl.pipeline.yml` | Ingestion pipeline config |
 | `resources/fhir_resource_silver_etl.pipeline.yml` | Silver pipeline config |

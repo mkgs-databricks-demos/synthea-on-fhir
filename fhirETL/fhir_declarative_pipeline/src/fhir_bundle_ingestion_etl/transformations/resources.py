@@ -32,7 +32,6 @@ from pyspark import pipelines as dp
         "delta.autoOptimize.autoCompact":      "true",
         "delta.enableVariantShredding":        "true",
         "pipelines.channel":                   "PREVIEW",
-        "delta.feature.variantType-preview":   "supported",
         "quality": "bronze",
     },
 )
