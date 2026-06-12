@@ -2,7 +2,7 @@
 
 Canonical long-term memory for the FHIR Declarative Pipeline bundle.
 Read this at the start of every session before making changes.
-Last updated: 2026-06-11 (FULLY STREAMING silver rewrite — PIVOT eliminated, VARIANT path extraction architecture)
+Last updated: 2026-06-12 (Silver v3 — identity/reference/codes/temporal extraction + full VARIANT; clinical mart ready)
 
 ---
 
@@ -65,17 +65,24 @@ Last updated: 2026-06-11 (FULLY STREAMING silver rewrite — PIVOT eliminated, V
 - Config keys: `pipeline.landing_volume_path`, `pipeline.catalog_use`, `pipeline.schema_use`
 - `fhir_resources_variant` is the primary source for the silver pipeline AND future FHIR server loading
 
-### 3. fhir_resource_silver_etl (FULLY STREAMING — no materialized views)
-- Reads `fhir_resource_schemas` to discover resource types at pipeline planning time
-- Per resource type, TWO objects (previously three):
+### 3. fhir_resource_silver_etl (v3 — FULLY STREAMING, clinical mart ready)
+- Reads `fhir_resource_schemas` to discover resource types + reference fields at planning time
+- Per resource type, TWO objects:
   - `{type}_extract` (temporary view) -- `STREAM(fhir_resources_variant)` filtered by
-    resourceType, VARIANT path extraction (`resource:fieldName`) + CAST to typed columns.
+    resourceType, extracts references/identifiers/codes/temporal via `try_variant_get`.
     Pure append-mode streaming, no aggregation, no shuffle.
   - `{type}` (streaming table) -- Auto CDC Type 1 upserts keyed on `{type}_uuid`,
     sequenced by `ingest_time`
+- **Uniform 10-column schema** (all 24 resource types):
+  `{type}_uuid PK, bundle_uuid, {type}_url, references, identifiers, codes, status,
+  clinical_event_effective_start, clinical_event_effective_end, resource VARIANT`
+- All extraction uses `try_variant_get` (NULL-safe, no INVALID_VARIANT_CAST)
+- Array iteration: `SEQUENCE(0, GREATEST(COALESCE(size(...), 0) - 1, 0))` (avoids
+  negative indices from Spark's SEQUENCE step inference)
 - Config keys: `pipeline.catalog_use`, `pipeline.schema_use`
 - Must run AFTER ingestion ETL on first deployment (two-pass architecture)
-- **ELIMINATED**: `{type}_raw` (MV/live table), `{type}_cdc_source` (CDF bridge), PIVOT operation
+- Incremental runs with no new data: verified clean (2026-06-12)
+- **ELIMINATED**: typed columns, PIVOT, MV, CDF bridge, `_raw` tables, schema_as_struct
 
 ---
 
@@ -116,16 +123,11 @@ Last updated: 2026-06-11 (FULLY STREAMING silver rewrite — PIVOT eliminated, V
     delta.autoOptimize.autoCompact:      true
     delta.enableVariantShredding:        true
     pipelines.channel:                   PREVIEW
+    delta.feature.variantType-preview:   supported
     pipelines.reset.allowed:             true
 
 Applied to all bronze tables (including `fhir_resources_variant`) and all 24 silver
 CDC target tables. Verified correct as of 2026-06-11.
-
-Note: `delta.feature.variantType-preview` has been removed. With
-`delta.enableVariantShredding: true`, VARIANT is fully supported and the
-preview feature flag is no longer needed. Existing tables that still carry
-the property are unaffected (it becomes a no-op), but new table definitions
-should omit it.
 
 ### Fully streaming silver architecture (PIVOT eliminated)
 
@@ -200,7 +202,12 @@ https://github.com/mkgs-databricks-demos/synthea-on-fhir/tree/main/synthea_on_db
 
 ---
 
-## Silver Table State (as of 2026-06-11, dev target)
+## Silver Table State (as of 2026-06-11, dev target — PRE-V3 REWRITE)
+
+Note: Row counts below are from the v2 typed-column architecture. After deploying
+v3 (reference extraction + VARIANT), a full refresh is needed. Row counts should
+remain the same (one row per resource per type), but the schema changes to:
+`{type}_uuid PK, bundle_uuid, {type}_url, references ARRAY<STRUCT<...>>, resource VARIANT`
 
 Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 
@@ -261,6 +268,10 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
   and all DELTA_SOURCE_TABLE_IGNORE_CHANGES errors. Branch `mg-silver-mv-cdf`
   is superseded by the VARIANT path extraction approach (committed to main).
 
+- ~~**Silver incremental runs on unchanged data**~~: VERIFIED 2026-06-12.
+  Incremental run with no new data completes cleanly (no errors, no spurious
+  upserts). Previously this caused errors in the v1/v2 architecture.
+
 - **Deploy + full refresh required**: After deploying the new silver pipeline:
   1. Full refresh ingestion pipeline (to populate `fhir_resources_variant`)
   2. Full refresh silver pipeline (to rebuild all 24 resource tables from new source)
@@ -291,7 +302,7 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 | `src/fhir_bundle_mover/transformations/file_tracker.py` | Auto Loader + UDF file mover; `file_tracker` streaming table |
 | `src/fhir_bundle_ingestion_etl/transformations/bronze.py` | `fhir_bronze`, `fhir_bronze_variant` |
 | `src/fhir_bundle_ingestion_etl/transformations/resources.py` | `fhir_resources_variant`, `bundle_meta`, `fhir_resources`, `fhir_resource_schemas` |
-| `src/fhir_resource_silver_etl/transformations/silver.py` | Dynamic silver table generation; VARIANT path extraction + Auto CDC per resource type |
+| `src/fhir_resource_silver_etl/transformations/silver.py` | Dynamic silver table generation; reference/identifier/code/temporal extraction + Auto CDC per resource type |
 | `resources/fhir_bundle_mover.pipeline.yml` | Mover pipeline config |
 | `resources/fhir_bundle_ingestion_etl.pipeline.yml` | Ingestion pipeline config |
 | `resources/fhir_resource_silver_etl.pipeline.yml` | Silver pipeline config |
