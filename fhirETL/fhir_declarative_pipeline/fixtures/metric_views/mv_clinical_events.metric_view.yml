@@ -1,0 +1,210 @@
+version: 1.1
+source: >
+  SELECT
+    'condition' AS event_domain,
+    condition_key AS event_key,
+    condition_dedup_key AS dedup_key,
+    patient_natural_key,
+    encounter_dedup_key,
+    condition_code AS primary_code,
+    condition_system AS code_system,
+    condition_display AS code_display,
+    category,
+    clinical_status AS status,
+    onset_datetime AS effective_datetime,
+    NULL AS value_quantity,
+    NULL AS value_unit,
+    last_updated
+  FROM {catalog}.{clinical_mart_schema}.fact_condition
+  UNION ALL
+  SELECT
+    'observation' AS event_domain,
+    observation_key AS event_key,
+    observation_dedup_key AS dedup_key,
+    patient_natural_key,
+    encounter_dedup_key,
+    observation_code AS primary_code,
+    observation_system AS code_system,
+    observation_display AS code_display,
+    category,
+    NULL AS status,
+    effective_datetime,
+    value_quantity,
+    value_unit,
+    last_updated
+  FROM {catalog}.{clinical_mart_schema}.fact_observation
+  UNION ALL
+  SELECT
+    'procedure' AS event_domain,
+    procedure_key AS event_key,
+    procedure_dedup_key AS dedup_key,
+    patient_natural_key,
+    encounter_dedup_key,
+    procedure_code AS primary_code,
+    procedure_system AS code_system,
+    procedure_display AS code_display,
+    NULL AS category,
+    NULL AS status,
+    performed_start AS effective_datetime,
+    NULL AS value_quantity,
+    NULL AS value_unit,
+    last_updated
+  FROM {catalog}.{clinical_mart_schema}.fact_procedure
+comment: "Unified clinical event metrics spanning conditions, observations, and procedures. Supports cross-domain event analysis, patient longitudinal views, and clinical coding distribution."
+dimensions:
+  - name: event_domain
+    expr: event_domain
+    comment: "Type of clinical event (condition, observation, procedure)"
+    display_name: Event Domain
+    synonyms:
+      - event type
+      - clinical domain
+  - name: event_month
+    expr: "DATE_TRUNC('MONTH', effective_datetime)"
+    comment: Month when the clinical event occurred
+    display_name: Event Month
+    format:
+      type: date
+      date_format: locale_short_month
+      leading_zeros: false
+    synonyms:
+      - month
+  - name: event_year
+    expr: "YEAR(effective_datetime)"
+    comment: Year of the clinical event
+    display_name: Event Year
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      hide_group_separator: true
+      abbreviation: none
+  - name: code_system
+    expr: code_system
+    comment: "Coding system (SNOMED-CT, LOINC, ICD-10, CPT, RxNorm)"
+    display_name: Code System
+    synonyms:
+      - vocabulary
+      - terminology
+  - name: primary_code
+    expr: primary_code
+    comment: Primary clinical classification code
+    display_name: Clinical Code
+    synonyms:
+      - diagnosis code
+      - procedure code
+      - LOINC code
+  - name: code_display
+    expr: code_display
+    comment: Human-readable description of the clinical code
+    display_name: Code Description
+    synonyms:
+      - code name
+      - description
+  - name: category
+    expr: category
+    comment: "Event category (e.g., encounter-diagnosis, vital-signs, laboratory)"
+    display_name: Category
+    synonyms:
+      - event category
+      - classification
+measures:
+  - name: total_events
+    expr: COUNT(event_key)
+    comment: Total clinical events across all domains
+    display_name: Total Clinical Events
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - event count
+      - total events
+  - name: unique_patients
+    expr: COUNT(DISTINCT patient_natural_key)
+    comment: Distinct patients with at least one clinical event
+    display_name: Unique Patients
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - patient count
+  - name: unique_codes
+    expr: COUNT(DISTINCT primary_code)
+    comment: Number of distinct clinical codes observed
+    display_name: Unique Codes
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - code diversity
+      - distinct codes
+  - name: condition_count
+    expr: COUNT(event_key) FILTER (WHERE event_domain = 'condition')
+    comment: Total number of condition (diagnosis) events
+    display_name: Conditions
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - diagnosis count
+  - name: observation_count
+    expr: COUNT(event_key) FILTER (WHERE event_domain = 'observation')
+    comment: Total number of observation events (labs, vitals)
+    display_name: Observations
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - lab count
+      - observation volume
+  - name: procedure_count
+    expr: COUNT(event_key) FILTER (WHERE event_domain = 'procedure')
+    comment: Total number of procedure events
+    display_name: Procedures
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - procedure volume
+  - name: events_per_patient
+    expr: MEASURE(total_events) / NULLIF(MEASURE(unique_patients), 0)
+    comment: Average clinical events per patient
+    display_name: Events per Patient
+    format:
+      type: number
+      decimal_places:
+        type: max
+        places: 1
+    synonyms:
+      - avg events per patient
+      - clinical intensity
+  - name: avg_observation_value
+    expr: AVG(value_quantity)
+    comment: Mean numeric value for observations (labs, vitals)
+    display_name: Avg Observation Value
+    format:
+      type: number
+      decimal_places:
+        type: max
+        places: 2
+    synonyms:
+      - mean lab value
+      - average reading

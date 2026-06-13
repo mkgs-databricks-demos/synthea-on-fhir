@@ -1,0 +1,89 @@
+# FHIR Gold Table: supplydelivery_gold
+# Source: silver supplydelivery table
+# Consumer: supply chain analytics, device delivery tracking, inventory management
+
+table:
+  name: supplydelivery_gold
+  comment: >-
+    Entity-resolved canonical supply delivery event. One row per unique
+    patient+item_code+occurrence. Tracks delivery of devices/supplies to patients.
+    Consumer: supply chain analytics, device delivery tracking.
+  cluster_by:
+    - patient_natural_key
+    - occurrence_datetime
+
+source:
+  silver_table: supplydelivery
+  join_type: event
+  patient_ref_field: patient
+
+natural_key:
+  column_name: supplydelivery_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.suppliedItem.itemCodeableConcept.coding[0].code', 'STRING')"
+      default: "UNKNOWN"
+    - expr: "e.clinical_event_effective_start"
+      default: "NULL"
+
+columns:
+  - name: supplydelivery_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this supply delivery."
+    source: "e.supplydelivery_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. The patient who received the supply."
+    source: "{{patient_natural_key}}"
+
+  - name: status
+    type: STRING
+    comment: "Delivery status: in-progress, completed, abandoned, entered-in-error."
+    source: "e.status"
+
+  - name: supply_type_code
+    type: STRING
+    comment: "Type of supply delivery (device, medication, biologicallyderivedproduct)."
+    source: "try_variant_get(e.resource, '$.type.coding[0].code', 'STRING')"
+
+  - name: supply_type_display
+    type: STRING
+    comment: "Human-readable supply type."
+    source: "try_variant_get(e.resource, '$.type.coding[0].display', 'STRING')"
+
+  - name: item_code
+    type: STRING
+    comment: "SNOMED code for the supplied item."
+    source: "try_variant_get(e.resource, '$.suppliedItem.itemCodeableConcept.coding[0].code', 'STRING')"
+
+  - name: item_display
+    type: STRING
+    comment: "Human-readable supplied item name."
+    source: "try_variant_get(e.resource, '$.suppliedItem.itemCodeableConcept.coding[0].display', 'STRING')"
+
+  - name: quantity_value
+    type: DOUBLE
+    comment: "Quantity of items delivered."
+    source: "CAST(try_variant_get(e.resource, '$.suppliedItem.quantity.value', 'STRING') AS DOUBLE)"
+
+  - name: occurrence_datetime
+    type: TIMESTAMP
+    comment: "When the supply was delivered to the patient."
+    source: "CAST(e.clinical_event_effective_start AS TIMESTAMP)"
+
+  - name: references
+    type: "ARRAY<STRUCT<field: STRING, url: STRING, type: STRING, display: STRING>>"
+    comment: "All references (patient, supplier)."
+    source: "e.references"
+
+expectations:
+  - name: supply_nk_not_null
+    expr: "supplydelivery_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn

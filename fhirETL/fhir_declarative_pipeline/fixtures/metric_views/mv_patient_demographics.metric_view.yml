@@ -1,0 +1,129 @@
+version: 1.1
+source: "{catalog}.{clinical_mart_schema}.dim_patient"
+filter: valid_to IS NULL
+comment: "Patient population demographics for the current (is_current) patient roster. Supports population health analysis, care gap identification, and demographic stratification."
+dimensions:
+  - name: gender
+    expr: gender
+    comment: Patient gender
+    display_name: Gender
+    synonyms:
+      - sex
+      - patient gender
+  - name: age_band
+    expr: |-
+      CASE
+        WHEN FLOOR(DATEDIFF(CURRENT_DATE(), birth_date) / 365.25) < 18 THEN 'Pediatric (0-17)'
+        WHEN FLOOR(DATEDIFF(CURRENT_DATE(), birth_date) / 365.25) BETWEEN 18 AND 39 THEN 'Young Adult (18-39)'
+        WHEN FLOOR(DATEDIFF(CURRENT_DATE(), birth_date) / 365.25) BETWEEN 40 AND 64 THEN 'Middle Age (40-64)'
+        WHEN FLOOR(DATEDIFF(CURRENT_DATE(), birth_date) / 365.25) BETWEEN 65 AND 79 THEN 'Senior (65-79)'
+        ELSE 'Elderly (80+)'
+      END
+    comment: Age band based on current date
+    display_name: Age Band
+    synonyms:
+      - age group
+      - age range
+      - age bracket
+  - name: state
+    expr: address_state
+    comment: Patient state of residence
+    display_name: State
+    synonyms:
+      - geography
+      - location
+      - patient state
+  - name: city
+    expr: address_city
+    comment: Patient city of residence
+    display_name: City
+    synonyms:
+      - patient city
+  - name: marital_status
+    expr: marital_status
+    comment: Patient marital status
+    display_name: Marital Status
+    synonyms:
+      - marital
+  - name: deceased_flag
+    expr: |-
+      CASE WHEN deceased = true THEN 'Deceased' ELSE 'Living' END
+    comment: Whether the patient is deceased
+    display_name: Vital Status
+    synonyms:
+      - alive or dead
+      - living status
+measures:
+  - name: total_patients
+    expr: COUNT(patient_key)
+    comment: Total number of current patients in the population
+    display_name: Total Patients
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - patient count
+      - population size
+      - roster size
+  - name: living_patients
+    expr: COUNT(patient_key) FILTER (WHERE deceased = false OR deceased IS NULL)
+    comment: Number of currently living patients
+    display_name: Living Patients
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - active patients
+      - alive patients
+  - name: deceased_patients
+    expr: COUNT(patient_key) FILTER (WHERE deceased = true)
+    comment: Number of deceased patients
+    display_name: Deceased Patients
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - dead patients
+      - mortality count
+  - name: avg_age
+    expr: AVG(FLOOR(DATEDIFF(CURRENT_DATE(), birth_date) / 365.25))
+    comment: Average age of the patient population
+    display_name: Average Age
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - mean age
+      - population age
+  - name: unique_states
+    expr: COUNT(DISTINCT address_state)
+    comment: Number of distinct states represented in the population
+    display_name: States Represented
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - geographic spread
+  - name: mortality_rate
+    expr: MEASURE(deceased_patients) / NULLIF(MEASURE(total_patients), 0)
+    comment: Proportion of patients who are deceased
+    display_name: Mortality Rate
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - death rate

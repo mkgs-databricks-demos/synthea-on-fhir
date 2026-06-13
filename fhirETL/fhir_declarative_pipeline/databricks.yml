@@ -21,6 +21,8 @@ variables:
   landing_volume:
     description: The name of the volume for landing the FHIR bundles
     default: landing
+  clinical_mart_schema:
+    description: The schema for the clinical mart (dimensional model — dim_/fact_ tables and metric views). Resolved per target.
   run_as_user:
     description: The User that the workflows should run as.
   higher_level_service_principal:
@@ -81,6 +83,10 @@ targets:
           name: ${var.schema}
           catalog_name: ${var.catalog}
           comment: Development version of the FHIR schema for ${workspace.current_user.short_name}
+        clinical_mart_schema:
+          name: ${var.clinical_mart_schema}
+          catalog_name: ${var.catalog}
+          comment: Clinical mart schema (dimensional model) for ${workspace.current_user.short_name}
       volumes:
         landing_volume:
           name: ${var.landing_volume}
@@ -90,6 +96,7 @@ targets:
       catalog: ncqai
       schema: fhir
       schema_resolved: ${bundle.target}_${workspace.current_user.short_name}_${var.schema}
+      clinical_mart_schema: clinical_mart
       source_catalog: ncqai
       run_as_user: matthew.giglia@databricks.com
 
@@ -114,6 +121,10 @@ targets:
           name: ${var.schema_resolved}
           catalog_name: ${var.catalog}
           comment: FHIR schema for the FHIR Declarative Pipeline project
+        clinical_mart_schema:
+          name: ${var.clinical_mart_schema}
+          catalog_name: ${var.catalog}
+          comment: Clinical mart schema for FHIR quality measures and population health analytics
       volumes:
         landing_volume:
           name: ${var.landing_volume}
@@ -127,6 +138,7 @@ targets:
       catalog: ncqai
       schema: fhir
       schema_resolved: ${var.schema}
+      clinical_mart_schema: clinical_mart
       source_catalog: ncqai
       higher_level_service_principal: acf021b4-87c6-44ff-b3d7-45c59d63fe4d
       run_as_user: ${var.higher_level_service_principal}
@@ -153,6 +165,11 @@ targets:
       host: https://fevm-hls-fde.cloud.databricks.com
       root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
     resources:
+      schemas:
+        clinical_mart_schema:
+          name: ${var.clinical_mart_schema}
+          catalog_name: ${var.catalog}
+          comment: Clinical mart schema for FHIR quality measures and population health analytics
       volumes:
         landing_volume:
           name: ${var.landing_volume}
@@ -166,6 +183,7 @@ targets:
       catalog: hls_fde
       schema: fhir
       schema_resolved: ${var.schema}
+      clinical_mart_schema: clinical_mart
       source_catalog: hls_fde
       higher_level_service_principal: acf021b4-87c6-44ff-b3d7-45c59d63fe4d
       run_as_user: ${var.higher_level_service_principal}

@@ -2,7 +2,7 @@
 
 Canonical long-term memory for the FHIR Declarative Pipeline bundle.
 Read this at the start of every session before making changes.
-Last updated: 2026-06-12 (Silver v3 — identity/reference/codes/temporal extraction + full VARIANT; clinical mart ready)
+Last updated: 2026-06-13 (Gold YAML engine complete — 25 tables; gold_overrides.py for location + bridge)
 
 ---
 
@@ -27,6 +27,8 @@ Last updated: 2026-06-12 (Silver v3 — identity/reference/codes/temporal extrac
 | `fhir_bundle_mover_etl` | [dev matthew_giglia] Streaming FHIR Bundle Mover | `e3e6b853-249a-45e9-ac29-faeec018fdf2` |
 | `fhir_bundle_ingestion_etl` | [dev matthew_giglia] FHIR Bundle Resource Parsing ETL | `4782f58f-2b71-4be0-a702-e112eca104c2` |
 | `fhir_resource_silver_etl` | [dev matthew_giglia] FHIR Resource Silver ETL | `aace6745-bdbd-4568-964b-5e78b40ac11f` |
+| `fhir_gold_etl` | [dev matthew_giglia] FHIR Gold Entity Resolution ETL | `74842515-face-4150-a800-c2ea2a3400ac` |
+| `fhir_gold_clinical_mart` | [dev matthew_giglia] FHIR Clinical Mart | (not yet deployed — no source tables) |
 
 ### Jobs
 
@@ -41,6 +43,7 @@ Last updated: 2026-06-12 (Silver v3 — identity/reference/codes/temporal extrac
 - `fhir_bundle_mover_event_log`
 - `fhir_bundle_ingestion_etl_event_log` (renamed from `fhir_declarative_pipeline_etl_event_log` -- old table is an orphan, safe to drop)
 - `fhir_resource_silver_etl_event_log`
+- `fhir_gold_etl_event_log`
 
 ---
 
@@ -84,6 +87,55 @@ Last updated: 2026-06-12 (Silver v3 — identity/reference/codes/temporal extrac
 - Incremental runs with no new data: verified clean (2026-06-12)
 - **ELIMINATED**: typed columns, PIVOT, MV, CDF bridge, `_raw` tables, schema_as_struct
 
+### 4. fhir_gold_etl (entity resolution + SCD1 — 25 TABLES)
+- Reads typed silver tables; produces `_gold` streaming tables in the SAME schema
+- **Four transformation files** (3 hand-coded + 1 engine):
+  - `entity_resolution.py` — 3 temp views: patient, practitioner, organization
+    (identifier normalization, natural key from SSN/NPI cascades)
+  - `fhir_gold.py` — 3 streaming tables + Auto CDC (patient, practitioner, organization)
+  - `gold_overrides.py` — 2 views + 2 tables + 2 CDC flows:
+    - `location_gold` (correlated subquery for managing_organization_nk)
+    - `patient_identity_bridge` (LATERAL VIEW EXPLODE of identifiers)
+  - `gold_engine.py` — YAML-driven: reads `fixtures/gold_etl/*.gold.yml`, generates
+    20 tables (temp view + streaming table + Auto CDC per YAML file)
+- **25 gold tables total**: 5 hand-coded + 20 YAML-driven
+- Natural key strategy:
+  - Patient: SSN > MRN > hospital system fallback (identifier_cascade)
+  - Practitioner: NPI (identifier_cascade)
+  - Organization: NPI or sha2(name) (identifier_cascade)
+  - Location: sha2(name + managing_org_nk) (correlated subquery)
+  - Events: sha2(patient_nk + code/class + temporal) (composite_sha2)
+  - Reference entities: sha2(code) or sha2(composite fields) (composite_sha2)
+- Sequence column: `resource:meta.lastUpdated` (NOT ingest_time)
+- Event views: STREAM(event_table) LEFT JOIN patient (static) on bundle_uuid + reference URL
+- Entity views: STREAM(entity_table) — no join needed
+- Config: `pipeline.catalog_use`, `pipeline.schema_use`, `pipeline.bundle_files_path`
+- Pipeline ID: `74842515-face-4150-a800-c2ea2a3400ac`
+
+### 5. fhir_gold_clinical_mart (dimensional model — NOT YET IMPLEMENTED)
+- Reads FROM `_gold` tables; produces `dim_*`, `fact_*` in separate `clinical_mart` schema
+- Schema managed by `${resources.schemas.clinical_mart_schema.name}`
+- Metric views registered by `src/fhir_gold_clinical_mart/register_metric_views.ipynb`
+- Pipeline resource defined; transformations directory scaffolded but empty
+
+### Dual-Gold Architecture
+
+Two distinct gold layers serve different consumers:
+
+| Layer | Schema | Tables | Consumer |
+|---|---|---|---|
+| FHIR Gold | `{catalog}.{fhir_schema}` (same as silver) | `patient_gold`, `encounter_gold`, ... | FHIR APIs, Smart-on-FHIR, Lakebase |
+| Clinical Mart | `{catalog}.{clinical_mart_schema}` (separate) | `dim_patient`, `fact_encounter`, ... | Dashboards, HEDIS, Genie |
+
+Bundle variables:
+- `schema` / `schema_resolved` — bronze, silver, FHIR Gold (auto-prefixed in dev)
+- `clinical_mart_schema` — separate schema for dimensional model (dev: `dev_{user}_clinical_mart`)
+
+Schema resources:
+- `${resources.schemas.fhir_schema.name}` — resolves to full name with dev prefix
+- `${resources.schemas.clinical_mart_schema.name}` — resolves to full name with dev prefix
+
+
 ---
 
 ## Job Architecture
@@ -101,7 +153,7 @@ Last updated: 2026-06-12 (Silver v3 — identity/reference/codes/temporal extrac
   The landing volume is a MANAGED volume; there is no named external location for it.
 - Parameter: `full_refresh` (default `"false"`)
 - Pattern: same condition_task branch as mover job
-- Tasks: `incremental_ingestion_etl` -> `incremental_silver_etl` (or full_refresh equivalents)
+- Tasks: `ingestion_etl` -> `silver_etl` -> `fhir_gold_etl` -> `clinical_mart_etl` (incremental or full_refresh)
 
 ### synthetic_fhir_etl_orchestration_job
 - No trigger (manual / API-triggered)
@@ -241,6 +293,33 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 
 ---
 
+## FHIR Gold Table State (as of 2026-06-13, dev target — FIRST FULL REFRESH)
+
+Pipeline: `fhir_gold_etl` (ID: `74842515-face-4150-a800-c2ea2a3400ac`)
+Full refresh update: `5fd4c657-ad43-4abe-b166-e67053ac02f5` — COMPLETED
+Incremental update: `2db75ebe-ff8b-46b4-a346-79b39ab125ed` — COMPLETED (0 new data, clean)
+
+| Table | Rows | Silver Source | Dedup Ratio | Null NK Rate |
+|---|---|---|---|---|
+| patient_gold | 124,256 | 134,899 | 1.09x | 0.0% |
+| practitioner_gold | 1,240 | — | — | — |
+| organization_gold | 1,126 | — | — | — |
+| location_gold | 1,141 | — | — | — |
+| encounter_gold | 7,972,040 | 7,973,057 | 1.00x | 0.0% |
+| condition_gold | 4,925,267 | — | — | — |
+| observation_gold | 70,386,595 | 70,671,532 | 1.00x | — |
+| procedure_gold | 22,132,354 | — | — | — |
+| medication_request_gold | 6,503,519 | — | — | — |
+| immunization_gold | 1,942,924 | — | — | — |
+
+Data quality:
+- 100% field population on patient demographics (family_name, given_name, birth_date, gender, address_state)
+- Natural keys show both SSN (`999-10-1002`) and MRN (`19693241`) formats — identifier cascade working
+- Encounter class distribution: AMB 93.3%, EMER 3.8%, IMP 1.9% (matches Synthea expected distribution)
+- Patient dedup: 10,643 silver rows collapsed (same real-world patient from multiple bundles)
+
+---
+
 ## Known Issues / TODOs
 
 - **File arrival trigger broken on fhir_etl_orchestration_job**: missing
@@ -306,6 +385,94 @@ Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
 | `resources/fhir_bundle_mover.pipeline.yml` | Mover pipeline config |
 | `resources/fhir_bundle_ingestion_etl.pipeline.yml` | Ingestion pipeline config |
 | `resources/fhir_resource_silver_etl.pipeline.yml` | Silver pipeline config |
+| `src/fhir_gold_etl/transformations/entity_resolution.py` | 3 temp views: patient_resolved, practitioner_resolved, organization_resolved (identifier cascades) |
+| `src/fhir_gold_etl/transformations/fhir_gold.py` | 3 streaming tables + CDC: patient_gold, practitioner_gold, organization_gold |
+| `src/fhir_gold_etl/transformations/gold_overrides.py` | 2 edge-case tables: location_gold (correlated subquery) + patient_identity_bridge (LATERAL VIEW EXPLODE) |
+| `src/fhir_gold_etl/transformations/gold_engine.py` | YAML engine: reads fixtures/gold_etl/*.gold.yml, generates 20 tables at planning time |
+| `src/fhir_gold_etl/schema/gold_table_schema.py` | Pydantic validation models for gold YAML configs |
+| `fixtures/gold_etl/*.gold.yml` | 20 YAML table definitions (see Gold YAML Engine section below) |
+| `src/fhir_gold_clinical_mart/register_metric_views.ipynb` | Registers metric views from YAML fixtures into clinical_mart schema |
+| `fixtures/architecture/gold_scd_layer_design.md` | Clinical mart design doc (dual-gold architecture, SCD2 dims, fact tables) |
+| `fixtures/architecture/fhir_gold_scd1_design.md` | FHIR Gold table schema design (SCD1, entity resolution, API serving) |
+| `fixtures/metric_views/*.metric_view.yml` | UC Metric View YAML definitions (encounter utilization, clinical events, patient demographics) |
+| `resources/fhir_gold_etl.pipeline.yml` | FHIR Gold Entity Resolution pipeline config |
+| `resources/fhir_gold_clinical_mart.pipeline.yml` | Clinical Mart pipeline config |
 | `resources/fhir_bundle_mover.job.yml` | FHIR Bundle Mover job |
 | `resources/fhir_etl_orchestration.job.yml` | FHIR ETL Orchestration job |
 | `resources/synthetic_fhir_etl_orchestration.job.yml` | Synthetic FHIR ETL Orchestration job |
+
+
+## Gold YAML Engine — COMPLETE (2026-06-13)
+
+### Architecture
+- `gold_engine.py`: reads `fixtures/gold_etl/*.gold.yml` at planning time, generates temp views + streaming tables + Auto CDC flows
+- `gold_table_schema.py`: pydantic validation models (GoldTableConfig root model)
+- `gold_overrides.py`: hand-coded edge cases (correlated subquery, LATERAL VIEW)
+- Design doc: `fixtures/architecture/gold_yaml_engine_design.md`
+
+### Final Table Distribution (25 total)
+
+| Source | Tables | Pattern |
+|---|---|---|
+| `fhir_gold.py` | patient_gold, practitioner_gold, organization_gold | identifier_cascade (entity) |
+| `gold_overrides.py` | location_gold | correlated subquery (entity) |
+| `gold_overrides.py` | patient_identity_bridge | LATERAL VIEW EXPLODE (bridge) |
+| `gold_engine.py` (YAML) | 20 tables (see below) | event / entity / financial |
+
+### All 20 YAML Fixtures (`fixtures/gold_etl/`)
+
+| YAML File | Table | join_type | patient_ref_field |
+|---|---|---|---|
+| `encounter_gold.gold.yml` | encounter_gold | event | subject |
+| `condition_gold.gold.yml` | condition_gold | event | subject |
+| `observation_gold.gold.yml` | observation_gold | event | subject |
+| `procedure_gold.gold.yml` | procedure_gold | event | subject |
+| `medication_request_gold.gold.yml` | medication_request_gold | event | subject |
+| `immunization_gold.gold.yml` | immunization_gold | event | patient |
+| `allergyintolerance_gold.gold.yml` | allergyintolerance_gold | event | patient |
+| `careplan_gold.gold.yml` | careplan_gold | event | subject |
+| `diagnosticreport_gold.gold.yml` | diagnosticreport_gold | event | subject |
+| `medicationadministration_gold.gold.yml` | medicationadministration_gold | event | subject |
+| `claim_gold.gold.yml` | claim_gold | event | patient |
+| `explanationofbenefit_gold.gold.yml` | explanationofbenefit_gold | event | patient |
+| `coverage_gold.gold.yml` | coverage_gold | event | beneficiary |
+| `careteam_gold.gold.yml` | careteam_gold | event | subject |
+| `documentreference_gold.gold.yml` | documentreference_gold | event | subject |
+| `device_gold.gold.yml` | device_gold | event | patient |
+| `imagingstudy_gold.gold.yml` | imagingstudy_gold | event | subject |
+| `supplydelivery_gold.gold.yml` | supplydelivery_gold | event | patient |
+| `medication_gold.gold.yml` | medication_gold | entity | null |
+| `practitionerrole_gold.gold.yml` | practitionerrole_gold | entity | null |
+
+### Silver Coverage Summary
+
+| Category | Tables | Status |
+|---|---|---|
+| Gold-covered (all patterns) | 25 | Complete |
+| Deferred (no gold table) | provenance, account, messageheader | Low clinical value / infrastructure |
+| Total silver resource types | 27 | 25/27 covered (93%) |
+
+### Validated Baselines (full refresh 3dccf159, 2026-06-13)
+
+| Table | Rows | Notes |
+|---|---|---|
+| encounter_gold | 7,972,040 | Exact match to hand-coded baseline |
+| claim_gold | 13,799,381 | Verified |
+| coverage_gold | 3 | Silver=6, dedup=3 |
+
+Remaining 22 tables need deploy + full refresh for validation.
+
+### Lessons Learned
+- `__file__` is NOT defined in SDP pipeline execution context (code compiled from b64)
+- Fix: added `pipeline.bundle_files_path: "${workspace.file_path}"` to pipeline config
+- `pyyaml` and `pydantic` are pre-installed on serverless (6.0.2 and 2.10.6 respectively)
+- Added `pyyaml` to `environment.dependencies` for explicitness
+- Pipeline glob `../src/fhir_gold_etl/transformations/**` auto-discovers new .py files
+- `patient_ref_field: null` for entity-type tables (no patient JOIN generated)
+- `codes[0].code` syntax works directly in YAML source expressions (engine doesn't transform)
+
+### Future Roadmap: Alert-Driven Governance
+- Alert V2 monitors `fhir_resource_schemas` for new types not covered by YAML
+- Triggers job to generate draft YAML → Volume staging area
+- Gold engine reads both fixtures/ (production) and Volume (provisional)
+- Governance app (future Databricks App V2) provides review/approve workflow

@@ -1,6 +1,6 @@
-# Gold SCD Layer — Design Document
+# Gold Layer — Design Document (Dual-Gold Architecture)
 
-> Status: DRAFT — for discussion
+> Status: IMPLEMENTED (FHIR Gold layer complete; Clinical Mart pending)
 > Created: 2026-06-12
 > Context: fhir_declarative_pipeline silver v3 is complete (177M rows, 24 tables, uniform 10-column schema)
 
@@ -22,7 +22,62 @@ The gold layer must:
 
 ---
 
-## 2. Architecture Overview
+## 1a. Dual-Gold Architecture
+
+This project produces TWO gold layers with distinct purposes:
+
+### FHIR Gold (same schema as bronze/silver)
+
+Entity-resolved, document-oriented tables optimized for **FHIR API serving** (HAPI FHIR,
+Smart-on-FHIR, Lakebase). One canonical row per real-world entity, SCD Type 1 (latest
+state wins). Preserves full `resource VARIANT` for lossless FHIR JSON reconstitution.
+
+- Schema: `{catalog}.{fhir_schema}` (co-located with bronze/silver)
+- Table naming: `{resource_type}_gold` (e.g., `patient_gold`, `encounter_gold`)
+- Consumer: FHIR servers, $export, Smart-on-FHIR apps, data exchange partners
+- Pipeline: `fhir_resource_silver_etl` (extends existing silver pipeline)
+- Grain: one row per resolved real-world entity (latest version)
+
+### Clinical Mart (separate schema)
+
+Dimensional model optimized for **analytical queries**, population health, quality
+measures, and dashboards. Star schema with surrogate keys, dedup keys, temporal grain.
+
+- Schema: `{catalog}.{clinical_mart_schema}` (separate, bundle-managed)
+- Table naming: `dim_{entity}`, `fact_{event}`, `bridge_{relationship}`
+- Consumer: Dashboards, Genie spaces, HEDIS (via ncq-ai), population health analytics
+- Pipeline: `fhir_gold_clinical_mart` (separate pipeline, reads from FHIR Gold)
+- Grain: one row per deduplicated clinical event (facts), temporal history (dims)
+
+### Dependency Chain
+
+```
+ingestion (bronze) → silver → FHIR Gold (entity resolution + SCD1) → Clinical Mart (dimensional reshape)
+                                  ↓                                           ↓
+                           FHIR API servers                         Dashboards, HEDIS, Genie
+```
+
+### Schema Resolution
+
+| Layer | dev | hedis | hls_fde |
+|---|---|---|---|
+| Bronze/Silver/FHIR Gold | `dev_{user}_fhir` | `fhir` | `fhir` |
+| Clinical Mart | `dev_{user}_clinical_mart` | `clinical_mart` | `clinical_mart` |
+
+### Bundle Variables
+
+```yaml
+variables:
+  schema:                 # Base FHIR schema (bronze, silver, FHIR Gold)
+  clinical_mart_schema:   # Separate schema for dimensional model
+```
+
+FHIR Gold tables publish into `${resources.schemas.fhir_schema.name}` — no additional
+schema needed. Clinical Mart tables publish into `${resources.schemas.clinical_mart_schema.name}`.
+
+---
+
+## 2. Architecture Overview (Clinical Mart)
 
 ```
 SILVER (per-resource, bundle-scoped)          GOLD (entity-resolved, temporal)
@@ -357,20 +412,30 @@ When duplicates exist (same dedup_key from multiple sources):
 
 ## 7. Schema and Catalog
 
-### 7.1 Target Schema
+### 7.1 Target Schemas (Dual-Gold)
+
+**FHIR Gold** tables live in the same schema as silver (no additional schema):
+
+| Target | FHIR Gold Schema | Example Table |
+|---|---|---|
+| dev | `ncqai.dev_matthew_giglia_fhir` | `patient_gold`, `encounter_gold` |
+| hedis | `ncqai.fhir` | `patient_gold`, `encounter_gold` |
+| hls_fde | `hls_fde.fhir` | `patient_gold`, `encounter_gold` |
+
+**Clinical Mart** tables live in a separate schema:
+
+| Target | Clinical Mart Schema | Example Table |
+|---|---|---|
+| dev | `ncqai.dev_matthew_giglia_clinical_mart` | `dim_patient`, `fact_encounter` |
+| hedis | `ncqai.clinical_mart` | `dim_patient`, `fact_encounter` |
+| hls_fde | `hls_fde.clinical_mart` | `dim_patient`, `fact_encounter` |
 
 ```yaml
-# Per target:
-#   dev:   ncqai.dev_matthew_giglia_fhir_gold
-#   hedis: ncqai.fhir_gold
-#   hls_fde: hls_fde.fhir_gold
-
 variables:
-  gold_schema:
-    default: "${var.schema}_gold"
+  clinical_mart_schema:
+    description: Schema for the clinical mart (dimensional model).
+# Resource reference for resolved name: ${resources.schemas.clinical_mart_schema.name}
 ```
-
-Alternative: same schema as silver, with `gold_` prefix on table names. TBD.
 
 ### 7.2 Table Naming Convention
 
@@ -380,47 +445,190 @@ Alternative: same schema as silver, with `gold_` prefix on table names. TBD.
 
 ---
 
-## 8. Open Questions
+## 8. Open Questions — RESOLVED (2026-06-12)
 
-1. **Separate schema or same schema?** Gold tables in `fhir_gold` schema (clean separation)
-   vs. same schema with `gold_` prefix (simpler job config). Recommend: separate schema.
+1. **Separate schema or same schema?**
+   RESOLVED: Separate schema (`fhir_gold`). Clean lineage, independent permissions,
+   no naming conflicts with silver tables.
 
-2. **SCD2 granularity for Patient**: Which attributes trigger a new historical row?
-   - Candidates: marital_status, address (moves), deceased flag
-   - Demographics that rarely change (birth_date, gender) should be SCD1
+2. **SCD2 granularity for Patient**:
+   RESOLVED: Track `marital_status` and `address_state` as SCD2 (HEDIS measures
+   stratify by geography). Keep `birth_date`, `gender`, `deceased` as SCD1.
 
-3. **Cross-source reference resolution**: Synthea data is single-source (all bundles
-   from same synthetic EMR). Multi-EMR scenario needs:
-   - Master Patient Index (MPI) logic
-   - Probabilistic matching when SSN not available
-   - Should this be a separate "matching" pipeline or inline?
+3. **Cross-source reference resolution**:
+   RESOLVED: Separate `entity_resolution.py` file producing `patient_resolved` as
+   a temp view. Isolates matching logic and makes it swappable (deterministic now,
+   probabilistic later via MPI service). NOT inline in dimension logic.
 
-4. **Encounter-based fact grain vs. event grain**: Some measures (HEDIS) need
-   encounter-level aggregation. Others (lab trending) need observation-level.
-   Current design: one fact per event type. Add encounter-level aggregation in marts?
+4. **Encounter-based fact grain vs. event grain**:
+   RESOLVED: Keep both. Facts at event grain (one row per clinical event).
+   Add `bridge_encounter_condition`, `bridge_encounter_observation` for
+   encounter-level aggregation in HEDIS measure views.
 
-5. **Performance at scale**: 69.8M observations → fact_observation will be large.
-   Partition strategy: `effective_datetime` (monthly? yearly?).
-   Liquid clustering candidate: `(patient_natural_key, observation_code, effective_datetime)`
+5. **Performance at scale**:
+   RESOLVED: Liquid Clustering on `(patient_natural_key, observation_code)` for
+   fact_observation. The `effective_datetime` range scan is served by Delta's
+   file-level min/max stats without needing it in the cluster key.
 
-6. **HEDIS measure compatibility**: The gold layer must support HEDIS value set
-   membership queries (`codes.code IN (SELECT code FROM hedis_value_set WHERE ...)`)
-   — does the array-of-structs `codes` column support this efficiently, or should
-   we flatten codes into the fact table?
+6. **HEDIS measure compatibility**:
+   RESOLVED: Gold fact tables should explode the primary code (first in codes array)
+   into scalar columns (`condition_code`, `condition_system`) for direct predicate
+   pushdown. Retain `codes` as secondary array only for multi-coding scenarios
+   (dual SNOMED + ICD-10 coded conditions).
 
-7. **Incremental entity resolution**: When a new bundle arrives with a known patient
-   (same SSN), Auto CDC handles the upsert. But if identifiers CHANGE (patient gets
-   a new MRN), how do we handle natural key evolution?
+7. **Incremental entity resolution / natural key evolution**:
+   RESOLVED: Use a `patient_identity_bridge` table mapping all known identifiers
+   to a canonical `patient_natural_key`. When a new MRN appears for an existing SSN,
+   the bridge grows but the natural key stays stable.
+
+---
+
+## 8a. Implementation Corrections (from architectural review 2026-06-12)
+
+Critical changes required before implementation:
+
+### 8a.1 Replace identity columns with deterministic surrogates
+
+`BIGINT GENERATED ALWAYS AS IDENTITY` is NOT supported in SDP streaming tables.
+Use deterministic surrogates instead:
+
+```sql
+-- Dimension surrogate key
+sha2(CONCAT(patient_natural_key, '|', CAST(valid_from AS STRING)), 256) AS patient_key
+
+-- Fact surrogate key (same as dedup key)
+sha2(CONCAT(patient_nk, '|', condition_code, '|', COALESCE(CAST(onset AS STRING), 'NULL')), 256)
+```
+
+### 8a.2 Use resource:meta.lastUpdated as SCD2 sequence column
+
+`ingest_time` reflects when data arrived, not when the resource was authored.
+For SCD2 dimensions, the sequence column must reflect business time:
+
+```python
+dp.create_auto_cdc_flow(
+    target="dim_patient",
+    source="patient_resolved",
+    keys=["patient_natural_key"],
+    sequence_by=col("resource_last_updated"),  # NOT ingest_time
+    stored_as_scd_type=2,
+    track_history_column_list=["marital_status", "address_state"],
+    except_column_list=["resource_last_updated"]
+)
+```
+
+Extract in the entity resolution view:
+```sql
+try_variant_get(resource, '$.meta.lastUpdated', 'STRING') AS resource_last_updated
+```
+
+### 8a.3 Normalize identifier system URIs
+
+Real-world data uses variant URI forms for the same system. Normalize before matching:
+
+```sql
+-- In entity_resolution.py patient_resolved view
+CASE
+  WHEN x.system IN ('http://hl7.org/fhir/sid/us-ssn', 'urn:oid:2.16.840.1.113883.4.1')
+    THEN 'SSN'
+  WHEN x.system LIKE '%us-npi%' OR x.system = 'urn:oid:2.16.840.1.113883.4.6'
+    THEN 'NPI'
+  WHEN x.type_code = 'MR'
+    THEN 'MRN'
+END AS identifier_type
+```
+
+### 8a.4 source_{type}_uuids accumulation
+
+`source_patient_uuids` is an accumulating array. SCD1 overwrites, it does not append.
+Pre-aggregate in the resolution view using `collect_set`:
+
+```sql
+collect_set(patient_uuid) OVER (
+    PARTITION BY patient_natural_key
+) AS source_patient_uuids
+```
+
+Note: window functions require materialized view or batch step. Consider making
+`source_patient_uuids` a separate lookup table rather than embedding in the dimension.
+
+### 8a.5 Handle absolute and relative FHIR references
+
+Synthea uses `urn:uuid:...` (intra-bundle). Real EMR exports use absolute URLs
+(`Patient/12345`). The reference resolution must handle both:
+
+```sql
+CASE
+  WHEN ref_url LIKE 'urn:uuid:%' THEN
+    -- Intra-bundle: join on bundle_uuid + url
+    p.patient_url = ref_url AND p.bundle_uuid = e.bundle_uuid
+  WHEN ref_url LIKE 'Patient/%' THEN
+    -- Absolute: join on resource id
+    try_variant_get(p.resource, '$.id', 'STRING') = SUBSTRING(ref_url, 9)
+END
+```
+
+### 8a.6 Observation.valueString and polymorphic value[x]
+
+The latest data introduced `Observation.valueString`. FHIR defines additional
+value types: `valueBoolean`, `valueDateTime`, `valuePeriod`, `valueRatio`.
+
+Add a `value_raw VARIANT` escape hatch to fact_observation:
+
+```sql
+`value_raw` VARIANT
+    COMMENT 'Full value[x] element as VARIANT for types beyond quantity/string/code.'
+```
+
+### 8a.7 Drop is_current column
+
+`is_current BOOLEAN` is redundant with `valid_to IS NULL`. Drop it unless query
+performance testing shows measurable benefit from Liquid Clustering on
+`(patient_natural_key, is_current)`. If retained, it must be maintained as a
+computed column or post-CDC update — Auto CDC Type 2 does not natively manage it.
+
+### 8a.8 Encounter dedup key refinement
+
+Current: `sha2(patient_nk + class + period_start)`. Risk: two ambulatory visits
+on the same day would collide. Add encounter type code:
+
+```sql
+sha2(CONCAT(
+    patient_natural_key, '|',
+    encounter_class, '|',
+    COALESCE(encounter_type_code, 'UNTYPED'), '|',
+    CAST(period_start AS STRING)
+), 256) AS encounter_dedup_key
+```
+
+### 8a.9 New resource types discovered (2026-06-12)
+
+The latest ingestion introduced 3 new FHIR resource types:
+- **Account** (6 columns) — billing accounts, references Patient + Coverage
+- **Coverage** (10 columns) — insurance policy details, references Patient
+- **MessageHeader** (9 columns) — bundle routing metadata, non-clinical
+
+And 5 new columns in existing types:
+- `Encounter.account` — reference to Account (new reference extraction opportunity)
+- `ExplanationOfBenefit.referral` — direct practitioner reference
+- `Observation.valueString` — polymorphic value expansion (handled in 8a.6)
+- `Patient.active` — boolean, no impact on gold design
+- `Patient.text` — narrative XHTML, cosmetic
+
+Gold layer impact: `Account` and `Coverage` feed into Phase 4 (financial facts).
+`MessageHeader` is routing metadata — excluded from clinical mart.
 
 ---
 
 ## 9. Dependencies and Prerequisites
 
-- Silver v3 pipeline: COMPLETE (177M rows, 24 tables, all extractions verified)
+- Silver v3 pipeline: COMPLETE (177M rows, 24 tables → now 27 types with Account/Coverage/MessageHeader)
 - Identifier quality: verified (Patient SSN/MRN populated, Practitioner NPI populated)
 - Reference resolution: verified (intra-bundle joins via bundle_uuid + url work)
 - Auto CDC Type 2: available in SDP PREVIEW channel
-- Separate gold schema: needs creation (`CREATE SCHEMA ncqai.dev_matthew_giglia_fhir_gold`)
+- Clinical mart schema: bundle-managed (`resources.schemas.clinical_mart_schema`); FHIR Gold uses existing fhir schema
+- Identifier normalization: implement URI aliasing before Phase 1
+- Surrogate key pattern: deterministic sha2-based (identity columns not supported in SDP)
 
 ---
 
@@ -428,11 +636,83 @@ Alternative: same schema as silver, with `gold_` prefix on table names. TBD.
 
 | Phase | Scope | Deliverable |
 |---|---|---|
-| Phase 1 | Entity resolution + dim_patient | Prove MPI pattern works at scale |
-| Phase 2 | All dimensions + fact_encounter | Star schema with encounter grain |
+| Phase 1 | Entity resolution + dim_patient + patient_identity_bridge | Prove MPI pattern works at scale |
+| Phase 2 | All dimensions + fact_encounter + bridge tables | Star schema with encounter grain |
 | Phase 3 | Clinical facts (condition, observation, procedure) | Full clinical mart |
-| Phase 4 | Financial facts (claim, EOB) | Revenue cycle analytics |
-| Phase 5 | HEDIS measure views | Quality measure reporting |
+| Phase 4 | Financial facts (claim, EOB, Account, Coverage) | Revenue cycle analytics |
+| Phase 5 | Clinical metric views (UC Metric Views) | Operational analytics (non-HEDIS) |
+
+---
+
+## 10a. Metric View CI/CD Strategy
+
+### Ownership Delineation
+
+- **This bundle (`fhir_declarative_pipeline`)**: Owns clinical mart metric
+  views — encounter utilization, clinical event aggregation, patient demographics.
+- **ncq-ai bundle (`mkgs-databricks-demos/ncq-ai`)**: Owns HEDIS-specific measure metric views.
+  That project ingests HEDIS specifications and defines numerator/denominator logic against
+  the clinical mart tables produced here. Cross-bundle dependency: ncq-ai reads from
+  `{catalog}.{clinical_mart_schema}.fact_*` and `{catalog}.{clinical_mart_schema}.dim_*`.
+
+### File Layout
+
+```
+fhir_declarative_pipeline/
+├── fixtures/
+│   └── metric_views/
+│       ├── mv_encounter_utilization.metric_view.yml
+│       ├── mv_clinical_events.metric_view.yml
+│       └── mv_patient_demographics.metric_view.yml
+└── src/
+    └── fhir_gold_clinical_mart/
+        └── register_metric_views.ipynb
+```
+
+### Pattern
+
+1. YAML definitions live in `fixtures/metric_views/` with naming convention
+   `{name}.metric_view.yml`. These are the source of truth — version-controlled,
+   diffable, and reviewed in PRs.
+
+2. Table/schema references use Python format placeholders: `{catalog}.{clinical_mart_schema}.table_name`.
+   NO Jinja, NO SQL variables inside the YAML — substitution happens at registration time.
+
+3. Registration notebook (`register_metric_views.ipynb`) accepts `catalog_use` and
+   `clinical_mart_schema_use` widget parameters, globs all YAML files, substitutes placeholders
+   via `.format()`, and executes `CREATE OR REPLACE VIEW ... WITH METRICS LANGUAGE YAML AS $...$`.
+
+4. The notebook runs as a task in the gold orchestration job AFTER all gold tables are
+   populated. It is idempotent — safe to re-run on every deployment.
+
+### Bundle Variable
+
+```yaml
+variables:
+  clinical_mart_schema:
+    description: Schema for the clinical mart (dimensional model — dim_/fact_ tables and metric views).
+# Per target (resolved via ${resources.schemas.clinical_mart_schema.name}):
+#   dev:     dev_matthew_giglia_clinical_mart
+#   hedis:   clinical_mart
+#   hls_fde: clinical_mart
+```
+
+### Materialization (future)
+
+Once query volume justifies it, add `materialization:` stanzas to the YAML files:
+
+```yaml
+materialization:
+  schedule: EVERY 1 DAY
+  mode: relaxed
+  materialized_views:
+    - name: daily_encounters
+      type: aggregated
+      dimensions: [encounter_month, encounter_class, organization_name]
+      measures: [total_encounters, unique_patients, avg_length_of_stay_hours]
+```
+
+This pre-computes common groupings without changing the query interface.
 
 ---
 
@@ -440,8 +720,11 @@ Alternative: same schema as silver, with `gold_` prefix on table names. TBD.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| SSN not available (real-world data) | Can't resolve patients | Probabilistic matching; MPI service integration |
+| SSN not available (real-world data) | Can't resolve patients | Probabilistic matching; MPI service integration; patient_identity_bridge |
 | Auto CDC Type 2 bugs in PREVIEW channel | SCD2 rows incorrect | Monitor `num_upserted_rows` metrics; validate with point-in-time queries |
-| Observation table too large (69.8M -> gold) | Slow queries | Liquid clustering on (patient_nk, code, effective_dt); Z-order fallback |
-| Identifier format variation across sources | False non-matches | Normalize identifiers (strip dashes from SSN, standardize NPI format) |
+| Observation table too large (69.8M -> gold) | Slow queries | Liquid clustering on (patient_nk, observation_code); Delta min/max stats for datetime |
+| Identifier format variation across sources | False non-matches | Normalize via URI aliasing in entity_resolution.py (SSN/NPI/MRN canonical forms) |
 | Circular references in FHIR | Infinite loops in resolution | Cap resolution depth; entity resources only (no clinical event self-refs) |
+| Identity columns unsupported in SDP | Schema errors at deploy | Use deterministic sha2 surrogates throughout |
+| ingest_time vs business time for SCD2 | Wrong historical ordering | Use resource:meta.lastUpdated as sequence_by column |
+| New resource types (Account, Coverage) | Missing from gold model | Addressed in Phase 4; silver tables already created dynamically |

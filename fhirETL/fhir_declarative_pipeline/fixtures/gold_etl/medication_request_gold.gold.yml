@@ -1,0 +1,89 @@
+# FHIR Gold Table: medication_request_gold
+# Source: silver medicationrequest table
+# Consumer: prescription history, polypharmacy analysis, HEDIS med adherence measures
+
+table:
+  name: medication_request_gold
+  comment: >-
+    Entity-resolved canonical medication request (prescription). One row per
+    unique patient+medication_code+authored_on. Consumer: prescription history,
+    polypharmacy analysis, HEDIS medication adherence measures.
+  cluster_by:
+    - patient_natural_key
+    - medication_code
+
+source:
+  silver_table: medicationrequest
+  join_type: event
+  patient_ref_field: subject
+
+natural_key:
+  column_name: medication_request_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.medicationCodeableConcept.coding[0].code', 'STRING')"
+      default: "UNKNOWN"
+    - expr: "e.clinical_event_effective_start"
+      default: "NULL"
+
+columns:
+  - name: medicationrequest_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this medication request."
+    source: "e.medicationrequest_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. The patient the medication was prescribed for."
+    source: "{{patient_natural_key}}"
+
+  - name: medication_code
+    type: STRING
+    comment: "RxNorm medication code."
+    source: "try_variant_get(e.resource, '$.medicationCodeableConcept.coding[0].code', 'STRING')"
+
+  - name: medication_system
+    type: STRING
+    comment: "Code system URI (typically http://www.nlm.nih.gov/research/umls/rxnorm)."
+    source: "try_variant_get(e.resource, '$.medicationCodeableConcept.coding[0].system', 'STRING')"
+
+  - name: medication_display
+    type: STRING
+    comment: "Human-readable medication name with dose form."
+    source: "try_variant_get(e.resource, '$.medicationCodeableConcept.coding[0].display', 'STRING')"
+
+  - name: status
+    type: STRING
+    comment: "Request status: active, on-hold, cancelled, completed, entered-in-error, stopped, draft."
+    source: "e.status"
+
+  - name: intent
+    type: STRING
+    comment: "Request intent: proposal, plan, order, original-order, reflex-order, filler-order, instance-order, option."
+    source: "try_variant_get(e.resource, '$.intent', 'STRING')"
+
+  - name: authored_on
+    type: TIMESTAMP
+    comment: "When the prescription was written."
+    source: "CAST(e.clinical_event_effective_start AS TIMESTAMP)"
+
+  - name: dosage_text
+    type: STRING
+    comment: "Free-text dosage instructions (e.g., 'Take 1 tablet daily')."
+    source: "try_variant_get(e.resource, '$.dosageInstruction[0].text', 'STRING')"
+
+  - name: codes
+    type: "ARRAY<STRUCT<system: STRING, code: STRING, display: STRING>>"
+    comment: "All medication codings (RxNorm + NDC)."
+    source: "e.codes"
+
+expectations:
+  - name: medrx_nk_not_null
+    expr: "medication_request_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn

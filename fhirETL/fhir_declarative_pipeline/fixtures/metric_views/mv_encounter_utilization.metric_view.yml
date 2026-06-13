@@ -1,0 +1,183 @@
+version: 1.1
+source: "{catalog}.{clinical_mart_schema}.fact_encounter"
+joins:
+  - name: patient
+    source: "{catalog}.{clinical_mart_schema}.dim_patient"
+    "on": source.patient_natural_key = patient.patient_natural_key AND patient.valid_to IS NULL
+  - name: organization
+    source: "{catalog}.{clinical_mart_schema}.dim_organization"
+    "on": source.organization_natural_key = organization.organization_natural_key AND organization.valid_to IS NULL
+  - name: location
+    source: "{catalog}.{clinical_mart_schema}.dim_location"
+    "on": source.location_natural_key = location.location_natural_key AND location.valid_to IS NULL
+comment: "Encounter utilization metrics for clinical operations analysis. Covers visit volume, length of stay, and provider capacity across organizations and locations."
+dimensions:
+  - name: encounter_month
+    expr: "DATE_TRUNC('MONTH', period_start)"
+    comment: Month when the encounter began
+    display_name: Encounter Month
+    format:
+      type: date
+      date_format: locale_short_month
+      leading_zeros: false
+    synonyms:
+      - visit month
+      - month of visit
+  - name: encounter_year
+    expr: "YEAR(period_start)"
+    comment: Year when the encounter began
+    display_name: Encounter Year
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      hide_group_separator: true
+      abbreviation: none
+    synonyms:
+      - visit year
+  - name: encounter_class
+    expr: encounter_class
+    comment: "Classification of the encounter (ambulatory, emergency, inpatient, wellness, urgentcare)"
+    display_name: Encounter Class
+    synonyms:
+      - visit type
+      - encounter type
+      - class of care
+  - name: encounter_type_display
+    expr: encounter_type_display
+    comment: Human-readable encounter type description (SNOMED display)
+    display_name: Encounter Type
+    synonyms:
+      - visit reason
+      - type of encounter
+  - name: patient_gender
+    expr: patient.gender
+    comment: Patient gender
+    display_name: Patient Gender
+    synonyms:
+      - gender
+      - sex
+  - name: patient_age_band
+    expr: |-
+      CASE
+        WHEN FLOOR(DATEDIFF(period_start, patient.birth_date) / 365.25) < 18 THEN 'Pediatric (0-17)'
+        WHEN FLOOR(DATEDIFF(period_start, patient.birth_date) / 365.25) BETWEEN 18 AND 39 THEN 'Young Adult (18-39)'
+        WHEN FLOOR(DATEDIFF(period_start, patient.birth_date) / 365.25) BETWEEN 40 AND 64 THEN 'Middle Age (40-64)'
+        ELSE 'Senior (65+)'
+      END
+    comment: Age band of the patient at time of encounter
+    display_name: Patient Age Band
+    synonyms:
+      - age group
+      - age range
+  - name: patient_state
+    expr: patient.address_state
+    comment: Patient state of residence
+    display_name: Patient State
+    synonyms:
+      - state
+      - geography
+  - name: organization_name
+    expr: organization.organization_name
+    comment: Name of the healthcare organization
+    display_name: Organization
+    synonyms:
+      - hospital
+      - facility
+      - provider org
+  - name: location_name
+    expr: location.location_name
+    comment: Name of the care delivery location
+    display_name: Location
+    synonyms:
+      - facility name
+      - site
+measures:
+  - name: total_encounters
+    expr: COUNT(encounter_key)
+    comment: Total number of encounters
+    display_name: Total Encounters
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - visit count
+      - number of visits
+      - encounter volume
+  - name: unique_patients
+    expr: COUNT(DISTINCT patient_natural_key)
+    comment: Number of distinct patients with encounters
+    display_name: Unique Patients
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - patient count
+      - distinct patients
+  - name: avg_length_of_stay_hours
+    expr: AVG(length_of_stay_hours)
+    comment: Average length of stay in hours across encounters
+    display_name: Avg Length of Stay (Hours)
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - average LOS
+      - mean stay duration
+  - name: inpatient_encounters
+    expr: COUNT(encounter_key) FILTER (WHERE encounter_class = 'inpatient')
+    comment: Count of inpatient encounters only
+    display_name: Inpatient Encounters
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - inpatient visits
+      - admissions
+  - name: emergency_encounters
+    expr: COUNT(encounter_key) FILTER (WHERE encounter_class = 'emergency')
+    comment: Count of emergency department encounters
+    display_name: ED Encounters
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - ED visits
+      - emergency visits
+  - name: encounters_per_patient
+    expr: MEASURE(total_encounters) / NULLIF(MEASURE(unique_patients), 0)
+    comment: Average number of encounters per distinct patient
+    display_name: Encounters per Patient
+    format:
+      type: number
+      decimal_places:
+        type: max
+        places: 2
+    synonyms:
+      - avg visits per patient
+      - utilization rate
+  - name: inpatient_rate
+    expr: MEASURE(inpatient_encounters) / NULLIF(MEASURE(total_encounters), 0)
+    comment: Proportion of encounters that are inpatient admissions
+    display_name: Inpatient Rate
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - admission rate
+      - inpatient proportion

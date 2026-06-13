@@ -1,0 +1,99 @@
+# FHIR Gold Table: careplan_gold
+# Source: silver careplan table
+# Consumer: care coordination, chronic disease management, HEDIS care plan measures
+
+table:
+  name: careplan_gold
+  comment: >-
+    Entity-resolved canonical care plan. One row per unique
+    patient+category+period_start. Consumer: care coordination,
+    chronic disease management, HEDIS care plan measures.
+  cluster_by:
+    - patient_natural_key
+    - category_code
+
+source:
+  silver_table: careplan
+  join_type: event
+  patient_ref_field: subject
+
+natural_key:
+  column_name: careplan_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.category[0].coding[0].code', 'STRING')"
+      default: "UNKNOWN"
+    - expr: "e.clinical_event_effective_start"
+      default: "NULL"
+
+columns:
+  - name: careplan_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this care plan."
+    source: "e.careplan_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. The patient this care plan is for."
+    source: "{{patient_natural_key}}"
+
+  - name: status
+    type: STRING
+    comment: "Care plan lifecycle: draft, active, on-hold, revoked, completed, entered-in-error."
+    source: "e.status"
+
+  - name: intent
+    type: STRING
+    comment: "Plan intent: proposal, plan, order, option."
+    source: "try_variant_get(e.resource, '$.intent', 'STRING')"
+
+  - name: category_code
+    type: STRING
+    comment: "Care plan category code (e.g., 698358001 = Angina self-management, assess-plan)."
+    source: "try_variant_get(e.resource, '$.category[0].coding[0].code', 'STRING')"
+
+  - name: category_display
+    type: STRING
+    comment: "Human-readable care plan category."
+    source: "try_variant_get(e.resource, '$.category[0].coding[0].display', 'STRING')"
+
+  - name: period_start
+    type: TIMESTAMP
+    comment: "When the care plan became active."
+    source: "CAST(e.clinical_event_effective_start AS TIMESTAMP)"
+
+  - name: period_end
+    type: TIMESTAMP
+    comment: "When the care plan ended. NULL if still active."
+    source: "CAST(e.clinical_event_effective_end AS TIMESTAMP)"
+
+  - name: activity_code
+    type: STRING
+    comment: "Primary planned activity code (first activity.detail.code)."
+    source: "try_variant_get(e.resource, '$.activity[0].detail.code.coding[0].code', 'STRING')"
+
+  - name: activity_display
+    type: STRING
+    comment: "Human-readable description of the primary planned activity."
+    source: "try_variant_get(e.resource, '$.activity[0].detail.code.coding[0].display', 'STRING')"
+
+  - name: references
+    type: "ARRAY<STRUCT<field: STRING, url: STRING, type: STRING, display: STRING>>"
+    comment: "All FHIR references (subject, encounter, careTeam, goal, activity references)."
+    source: "e.references"
+
+  - name: codes
+    type: "ARRAY<STRUCT<system: STRING, code: STRING, display: STRING>>"
+    comment: "All category codings for this care plan."
+    source: "e.codes"
+
+expectations:
+  - name: careplan_nk_not_null
+    expr: "careplan_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn

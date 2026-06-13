@@ -1,0 +1,74 @@
+# FHIR Gold ETL pipeline.
+#
+# Entity resolution and SCD1 deduplication layer. Reads from typed silver tables
+# (patient, encounter, condition, etc.) and produces _gold tables in the same
+# fhir schema — one canonical row per real-world entity, latest state wins.
+#
+# Responsibilities:
+#   1. Identifier normalization (URI aliasing: SSN, NPI, MRN)
+#   2. Natural key assignment (deterministic identity resolution)
+#   3. Reference resolution (intra-bundle urn:uuid + absolute Patient/id)
+#   4. Auto CDC Type 1 deduplication (keyed on {type}_natural_key)
+#
+# Produces:
+#   Entity tables: patient_gold, practitioner_gold, organization_gold, location_gold
+#   Event tables:  encounter_gold, condition_gold, observation_gold, procedure_gold,
+#                  medication_request_gold, immunization_gold
+#   Bridge:        patient_identity_bridge
+#
+# Publishes to the same schema as silver (${var.schema_resolved}) — no separate
+# schema needed. The _gold suffix distinguishes from silver tables.
+#
+# This pipeline runs AFTER fhir_resource_silver_etl and BEFORE fhir_gold_clinical_mart.
+
+resources:
+  pipelines:
+    fhir_gold_etl:
+      name: FHIR Gold Entity Resolution ETL
+      catalog: ${var.catalog}
+      schema: ${var.schema_resolved}
+      serverless: true
+      channel: "PREVIEW"
+      continuous: false
+      edition: "ADVANCED"
+      root_path: "../src/fhir_gold_etl"
+
+      libraries:
+        - glob:
+            include: ../src/fhir_gold_etl/transformations/**
+
+      configuration:
+        pipeline.catalog_use: "${var.catalog}"
+        pipeline.schema_use: "${var.schema_resolved}"
+        pipeline.bundle_files_path: "${workspace.file_path}"
+
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${var.schema_resolved}
+        name: fhir_gold_etl_event_log
+
+      notifications:
+        - email_recipients:
+            - matthew.giglia@databricks.com
+          alerts:
+            - on-update-success
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+
+      permissions:
+        - user_name: matthew.giglia@databricks.com
+          level: CAN_MANAGE
+
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+
+      environment:
+        dependencies:
+          - --editable ${workspace.file_path}
+          - pyyaml

@@ -1,0 +1,100 @@
+# FHIR Gold Table: practitionerrole_gold
+# Source: silver practitionerrole table
+# Consumer: provider directories, network adequacy, practitioner-org mapping
+#
+# NOTE: This is a REFERENCE entity table (no patient FK). PractitionerRole maps
+# practitioners to organizations with specialty/role codes. All references are
+# inline identifier references in VARIANT (not in silver references array).
+# join_type: entity (no patient join).
+
+table:
+  name: practitionerrole_gold
+  comment: >-
+    Practitioner-to-organization role assignment. One row per unique
+    practitioner+organization+specialty. Links providers to facilities
+    with their role/specialty. Consumer: provider directories, network
+    adequacy analysis, referral routing.
+  cluster_by:
+    - practitioner_npi
+    - organization_identifier
+
+source:
+  silver_table: practitionerrole
+  join_type: entity
+  patient_ref_field: null
+
+natural_key:
+  column_name: practitionerrole_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "try_variant_get(e.resource, '$.practitioner.identifier.value', 'STRING')"
+      default: "UNKNOWN_PRACTITIONER"
+    - expr: "try_variant_get(e.resource, '$.organization.identifier.value', 'STRING')"
+      default: "UNKNOWN_ORG"
+    - expr: "try_variant_get(e.resource, '$.specialty[0].coding[0].code', 'STRING')"
+      default: "UNKNOWN_SPECIALTY"
+
+columns:
+  - name: practitionerrole_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this practitioner role."
+    source: "e.practitionerrole_url"
+
+  - name: practitioner_npi
+    type: STRING
+    comment: "NPI of the practitioner (from resource.practitioner.identifier.value)."
+    source: "try_variant_get(e.resource, '$.practitioner.identifier.value', 'STRING')"
+
+  - name: practitioner_display
+    type: STRING
+    comment: "Human-readable practitioner name."
+    source: "try_variant_get(e.resource, '$.practitioner.display', 'STRING')"
+
+  - name: organization_identifier
+    type: STRING
+    comment: "Organization identifier (Synthea UUID or NPI) from resource.organization.identifier.value."
+    source: "try_variant_get(e.resource, '$.organization.identifier.value', 'STRING')"
+
+  - name: organization_display
+    type: STRING
+    comment: "Human-readable organization name."
+    source: "try_variant_get(e.resource, '$.organization.display', 'STRING')"
+
+  - name: specialty_code
+    type: STRING
+    comment: "NUCC taxonomy code for the practitioner specialty (e.g., 208D00000X = General Practice)."
+    source: "try_variant_get(e.resource, '$.specialty[0].coding[0].code', 'STRING')"
+
+  - name: specialty_display
+    type: STRING
+    comment: "Human-readable specialty name."
+    source: "try_variant_get(e.resource, '$.specialty[0].coding[0].display', 'STRING')"
+
+  - name: role_code
+    type: STRING
+    comment: "NUCC role/provider taxonomy code from resource.code."
+    source: "try_variant_get(e.resource, '$.code[0].coding[0].code', 'STRING')"
+
+  - name: role_display
+    type: STRING
+    comment: "Human-readable role description."
+    source: "try_variant_get(e.resource, '$.code[0].coding[0].display', 'STRING')"
+
+  - name: location_display
+    type: STRING
+    comment: "Display name of the practice location."
+    source: "try_variant_get(e.resource, '$.location[0].display', 'STRING')"
+
+  - name: telecom_phone
+    type: STRING
+    comment: "Primary phone number for the practitioner at this role/location."
+    source: "try_variant_get(e.resource, '$.telecom[0].value', 'STRING')"
+
+expectations:
+  - name: role_nk_not_null
+    expr: "practitionerrole_natural_key IS NOT NULL"
+    action: drop
+
+  - name: practitioner_npi_not_null
+    expr: "practitioner_npi IS NOT NULL"
+    action: warn

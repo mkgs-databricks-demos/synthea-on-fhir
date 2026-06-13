@@ -1,29 +1,36 @@
 # FHIR ETL Orchestration job.
 #
-# Runs the FHIR bundle ingestion ETL (bronze) pipeline followed by the FHIR
-# resource silver ETL pipeline in sequence. Intended to run after the FHIR
-# Bundle Mover has landed files in the destination landing volume.
+# Runs the full ETL chain in sequence:
+#   ingestion (bronze) → silver → fhir_gold (entity resolution) → clinical_mart (dimensional)
+#
+# Intended to run after the FHIR Bundle Mover has landed files in the destination
+# landing volume.
 #
 # This job is intentionally separate from the FHIR Bundle Mover job so that
-# ingestion and silver processing can be triggered independently of file
+# ingestion, silver, and gold processing can be triggered independently of file
 # movement (e.g. for schema evolution, reprocessing, or manual runs).
 #
-# The full_refresh parameter controls refresh behavior for both pipelines.
-# When set to "true", both pipelines are fully refreshed in order. When
-# "false" (default), both run incrementally via Auto Loader checkpoints.
+# The full_refresh parameter controls refresh behavior for all pipelines.
+# When set to "true", all pipelines are fully refreshed in order. When
+# "false" (default), all run incrementally via Auto Loader checkpoints.
 #
-# Task graph (5 tasks):
+# Task graph (9 tasks):
 #
 #   check_full_refresh  (condition: full_refresh == "true")
 #       |-- false --> incremental_ingestion_etl --> incremental_silver_etl
+#       |                --> incremental_fhir_gold_etl --> incremental_clinical_mart_etl
 #       |-- true  --> full_refresh_ingestion_etl --> full_refresh_silver_etl
+#                       --> full_refresh_fhir_gold_etl --> full_refresh_clinical_mart_etl
 
 resources:
   jobs:
     fhir_etl_orchestration_job:
       name: FHIR ETL Orchestration
       description: >
-        Runs the FHIR bundle ingestion ETL (bronze) pipeline followed by the FHIR resource silver ETL pipeline in sequence. Set full_refresh to "true" to trigger a full refresh of both pipelines in order. Defaults to incremental refresh, processing only new files via Auto Loader.
+        Runs the full FHIR ETL chain: ingestion (bronze) -> silver -> FHIR Gold
+        (entity resolution + SCD1) -> Clinical Mart (dimensional model). Set
+        full_refresh to "true" to trigger a full refresh of all pipelines in order.
+        Defaults to incremental refresh via Auto Loader checkpoints.
 
       # Trigger when new FHIR bundle files arrive in the landing volume.
       # The FHIR Bundle Mover job writes to this volume; this job picks up
@@ -68,7 +75,9 @@ resources:
             left: "{{job.parameters.full_refresh}}"
             right: "true"
 
-        # Task 2a: Incremental ingestion ETL — runs when full_refresh != "true"
+        # --- Incremental branch ---
+
+        # Task 2a: Incremental ingestion ETL
         - task_key: incremental_ingestion_etl
           depends_on:
             - task_key: check_full_refresh
@@ -77,7 +86,7 @@ resources:
             pipeline_id: ${resources.pipelines.fhir_bundle_ingestion_etl.id}
             full_refresh: false
 
-        # Task 3a: Incremental silver ETL — runs after incremental ingestion
+        # Task 3a: Incremental silver ETL
         - task_key: incremental_silver_etl
           depends_on:
             - task_key: incremental_ingestion_etl
@@ -85,7 +94,25 @@ resources:
             pipeline_id: ${resources.pipelines.fhir_resource_silver_etl.id}
             full_refresh: false
 
-        # Task 2b: Full refresh ingestion ETL — runs when full_refresh == "true"
+        # Task 4a: Incremental FHIR Gold (entity resolution + SCD1)
+        - task_key: incremental_fhir_gold_etl
+          depends_on:
+            - task_key: incremental_silver_etl
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.fhir_gold_etl.id}
+            full_refresh: false
+
+        # Task 5a: Incremental Clinical Mart (dimensional model)
+        - task_key: incremental_clinical_mart_etl
+          depends_on:
+            - task_key: incremental_fhir_gold_etl
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.fhir_gold_clinical_mart.id}
+            full_refresh: false
+
+        # --- Full refresh branch ---
+
+        # Task 2b: Full refresh ingestion ETL
         - task_key: full_refresh_ingestion_etl
           depends_on:
             - task_key: check_full_refresh
@@ -94,10 +121,26 @@ resources:
             pipeline_id: ${resources.pipelines.fhir_bundle_ingestion_etl.id}
             full_refresh: true
 
-        # Task 3b: Full refresh silver ETL — runs after full refresh ingestion
+        # Task 3b: Full refresh silver ETL
         - task_key: full_refresh_silver_etl
           depends_on:
             - task_key: full_refresh_ingestion_etl
           pipeline_task:
             pipeline_id: ${resources.pipelines.fhir_resource_silver_etl.id}
+            full_refresh: true
+
+        # Task 4b: Full refresh FHIR Gold (entity resolution + SCD1)
+        - task_key: full_refresh_fhir_gold_etl
+          depends_on:
+            - task_key: full_refresh_silver_etl
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.fhir_gold_etl.id}
+            full_refresh: true
+
+        # Task 5b: Full refresh Clinical Mart (dimensional model)
+        - task_key: full_refresh_clinical_mart_etl
+          depends_on:
+            - task_key: full_refresh_fhir_gold_etl
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.fhir_gold_clinical_mart.id}
             full_refresh: true

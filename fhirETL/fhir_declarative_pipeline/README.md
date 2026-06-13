@@ -1,8 +1,9 @@
 # FHIR Declarative Pipeline
 
 A Declarative Automation Bundle (DABs) that ingests synthetic FHIR R4 bundles
-through a three-stage Lakeflow Spark Declarative Pipeline stack: file movement,
-bronze ingestion, and typed silver tables per resource type.
+through a five-stage Lakeflow Spark Declarative Pipeline stack: file movement,
+bronze ingestion, typed silver tables, gold entity resolution, and a clinical
+mart dimensional model.
 
 ---
 
@@ -10,14 +11,10 @@ bronze ingestion, and typed silver tables per resource type.
 
 ### 1. synthea_on_dbx (required for synthetic data generation)
 
-The `Synthetic FHIR ETL Orchestration` job in this bundle calls
-`synthea_on_dbx_job` as its first task. This job must be deployed to the same
-workspace before this bundle can be deployed. The `synthea_job_id` variable
-is resolved automatically by job name at `bundle validate` and `bundle deploy`
-time — no manual ID lookup is needed. If the job is absent, validation will
-fail with a lookup error.
-
-To deploy `synthea_on_dbx`:
+The `Synthetic FHIR ETL Orchestration` job calls `synthea_on_dbx_job` as its
+first task. This job must be deployed to the same workspace before this bundle.
+The `synthea_job_id` variable resolves automatically by job name at validate/deploy
+time — no manual ID lookup is needed.
 
 ```bash
 git clone https://github.com/mkgs-databricks-demos/synthea-on-fhir.git
@@ -27,22 +24,12 @@ databricks bundle deploy --target <target>
 
 Repo: https://github.com/mkgs-databricks-demos/synthea-on-fhir/tree/main/synthea_on_dbx
 
-The bundle deploys a job named exactly `synthea_on_dbx_job`. This name must
-match the lookup in `databricks.yml`. If you deployed the synthea bundle in
-`mode: development`, the job will be prefixed (e.g.
-`[dev your_name] synthea_on_dbx_job`) and the lookup will fail. Deploy the
-synthea bundle in production mode for `hedis` and `hls_fde` targets, or
-override `synthea_job_id` manually in the `dev` target variables if needed.
-
 ---
 
 ## Deployment
 
 ```bash
-# Validate first (resolves all variable lookups including synthea_job_id)
 databricks bundle validate --target dev
-
-# Deploy
 databricks bundle deploy --target dev
 ```
 
@@ -53,56 +40,115 @@ Supported targets: `dev` (fevm-hedis, development mode), `hedis`
 
 ## Pipeline Architecture
 
-Three Lakeflow Spark Declarative Pipelines run in sequence:
+Five Lakeflow Spark Declarative Pipelines run in sequence:
 
-**1. Streaming FHIR Bundle Mover** (`fhir_bundle_mover_etl`)
+### 1. Streaming FHIR Bundle Mover (`fhir_bundle_mover_etl`)
 Reads FHIR bundle files from a source volume using Auto Loader (binaryFile
 format). A UDF distributes file copies across the cluster to the landing
-volume. Results are tracked in the `file_tracker` streaming table. Already-
-present destination files are skipped; re-running only processes new files.
+volume. Results tracked in the `file_tracker` streaming table.
 
-**2. FHIR Bundle Resource Parsing ETL** (`fhir_bundle_ingestion_etl`)
-Auto Loader text ingestion from the landing volume. Produces five tables:
-`fhir_bronze`, `fhir_bronze_variant`, `bundle_meta`, `fhir_resources`
-(exploded key-value pairs), and `fhir_resource_schemas` (one row per
-resource type / column, with inferred VARIANT schema).
+### 2. FHIR Bundle Resource Parsing ETL (`fhir_bundle_ingestion_etl`)
+Auto Loader text ingestion from the landing volume. Produces:
+- `fhir_bronze` / `fhir_bronze_variant` — raw text → VARIANT JSON
+- `bundle_meta` — bundle-level metadata
+- `fhir_resources_variant` — **one row per resource, full VARIANT** (universal staging)
+- `fhir_resources` — exploded key-value rows (retained for schema discovery)
+- `fhir_resource_schemas` — inferred VARIANT + struct schemas per resource type
 
-**3. FHIR Resource Silver ETL** (`fhir_resource_silver_etl`)
-Dynamically generates typed silver tables for each FHIR resource type
-discovered in `fhir_resource_schemas`. Per resource type:
-- `{type}_raw` (private) — PIVOT of `fhir_resources` key-value rows into
-  VARIANT columns, one column per field.
-- `{type}` — Auto CDC Type 1 upserts; each VARIANT column cast to its
-  inferred struct type from `fhir_resource_schemas`.
+### 3. FHIR Resource Silver ETL (`fhir_resource_silver_etl`)
+Fully streaming architecture — no PIVOT, no materialized views, no batch intermediaries.
+Dynamically generates one streaming table per FHIR resource type (27 total):
+```
+fhir_resources_variant (STREAM, filter by resourceType)
+  → {type}_extract (temp view: VARIANT path extraction + reference/identifier/code parsing)
+  → {type} (Auto CDC Type 1 upsert, keyed on {type}_uuid, sequenced by ingest_time)
+```
+Uniform 10-column schema: `{type}_uuid`, `bundle_uuid`, `{type}_url`,
+`references`, `identifiers`, `codes`, `status`, `clinical_event_effective_start`,
+`clinical_event_effective_end`, `resource` (VARIANT).
 
-Schema evolution is handled automatically via `pipelines.reset.allowed = true`.
-The silver pipeline must run after the ingestion ETL on first deployment
-(two-pass: ingestion populates `fhir_resource_schemas`, silver reads it).
+### 4. FHIR Gold Entity Resolution ETL (`fhir_gold_etl`)
+Resolves real-world entity identity and deduplicates via Auto CDC Type 1.
+Produces 25 gold streaming tables from four transformation files:
+
+| Source | Tables | Pattern |
+|---|---|---|
+| `entity_resolution.py` + `fhir_gold.py` | patient, practitioner, organization (3) | Identifier cascade (SSN/NPI) |
+| `gold_overrides.py` | location, patient_identity_bridge (2) | Correlated subquery, LATERAL VIEW |
+| `gold_engine.py` (YAML-driven) | 20 tables | Event join + entity patterns |
+
+The **YAML engine** reads `fixtures/gold_etl/*.gold.yml` at planning time and
+generates temp views + streaming tables + Auto CDC flows. Each YAML file defines
+source, natural key strategy, columns (with `try_variant_get` expressions), and
+data quality expectations. New gold tables can be added by dropping a YAML file —
+no Python code required.
+
+Natural key strategies:
+- Patient: SSN > MRN > hospital system (identifier cascade)
+- Practitioner: NPI
+- Organization: NPI or sha2(name)
+- Location: sha2(name + managing_org_nk) via correlated subquery
+- Events: sha2(patient_nk + code + temporal)
+
+### 5. FHIR Clinical Mart (`fhir_gold_clinical_mart`)
+Dimensional model consuming from `_gold` tables into a separate schema.
+Planned: `dim_patient`, `dim_provider`, `dim_organization`, `dim_date`,
+`fact_encounter`, `fact_condition`, `fact_observation`, `fact_procedure`,
+`fact_medication`, `fact_claim`. Not yet implemented.
+
+---
+
+## Directory Structure
+
+```
+fhir_declarative_pipeline/
+├── databricks.yml                          # Bundle config (targets, variables, schemas)
+├── PROJECT_MEMORY.md                       # Canonical long-term AI memory
+├── README.md                               # This file
+├── resources/
+│   ├── fhir_bundle_mover.pipeline.yml
+│   ├── fhir_bundle_ingestion_etl.pipeline.yml
+│   ├── fhir_resource_silver_etl.pipeline.yml
+│   ├── fhir_gold_etl.pipeline.yml
+│   ├── fhir_gold_clinical_mart.pipeline.yml
+│   ├── fhir_bundle_mover.job.yml
+│   ├── fhir_etl_orchestration.job.yml
+│   └── synthetic_fhir_etl_orchestration.job.yml
+├── src/
+│   ├── fhir_bundle_mover/transformations/
+│   ├── fhir_bundle_ingestion_etl/transformations/
+│   ├── fhir_resource_silver_etl/transformations/
+│   ├── fhir_gold_etl/
+│   │   ├── schema/gold_table_schema.py     # Pydantic models for YAML validation
+│   │   └── transformations/
+│   │       ├── entity_resolution.py        # 3 identifier cascade views
+│   │       ├── fhir_gold.py                # 3 entity streaming tables + CDC
+│   │       ├── gold_overrides.py           # location + bridge (edge cases)
+│   │       └── gold_engine.py              # YAML-driven: 20 tables
+│   └── fhir_gold_clinical_mart/transformations/
+├── fixtures/
+│   ├── gold_etl/*.gold.yml                 # 20 gold table YAML definitions
+│   ├── metric_views/*.metric_view.yml      # UC Metric View definitions
+│   ├── architecture/                       # Design documents
+│   └── sessions/                           # Development session logs
+└── tests/                                  # (planned)
+```
 
 ---
 
 ## Jobs
 
 **FHIR Bundle Mover** (`fhir_bundle_mover_job`)
-File-arrival triggered on the source volume. Accepts a `full_refresh`
-parameter (default `"false"`). Uses a condition task to branch between
-incremental and full refresh pipeline runs.
+File-arrival triggered on source volume. Branches between incremental and
+full refresh via `full_refresh` parameter.
 
 **FHIR ETL Orchestration** (`fhir_etl_orchestration_job`)
-File-arrival triggered on the landing volume. Sequences ingestion ETL
-followed by silver ETL. Accepts a `full_refresh` parameter. Use this job
-to run or reprocess the ingestion and silver layers independently of file
-movement.
+File-arrival triggered on landing volume. Sequences: ingestion → silver →
+gold → clinical mart. Accepts `full_refresh` parameter.
 
 **Synthetic FHIR ETL Orchestration** (`synthetic_fhir_etl_orchestration_job`)
-End-to-end pipeline for synthetic data generation and ingestion. Linear
-three-task sequence:
-1. `run_synthea` — calls `synthea_on_dbx_job` with `catalog_use` set to
-   the target catalog, `inject_bad_data=false`, `move_csv_to_landing=false`.
-2. `run_fhir_bundle_mover` — moves generated bundles to the landing volume.
-3. `run_fhir_etl_orchestration` — ingests and processes through bronze and
-   silver layers.
-Always runs incrementally. For full refresh, run the individual jobs directly.
+End-to-end: `run_synthea` → `run_fhir_bundle_mover` → `run_fhir_etl_orchestration`.
+Always incremental. For full refresh, run individual jobs directly.
 
 ---
 
@@ -110,20 +156,22 @@ Always runs incrementally. For full refresh, run the individual jobs directly.
 
 | Variable | Description | Default |
 |---|---|---|
-| `catalog` | Target UC catalog | set per target |
-| `schema` | Base schema name | set per target |
-| `schema_resolved` | Resolved schema (includes target/user prefix in dev) | set per target |
-| `source_catalog` | Catalog containing synthea source volume | set per target |
+| `catalog` | Target UC catalog | per target |
+| `schema` | Base schema name | per target |
+| `schema_resolved` | Resolved schema (includes dev prefix) | per target |
+| `clinical_mart_schema` | Separate schema for dimensional model | `clinical_mart` |
+| `source_catalog` | Catalog containing synthea source volume | per target |
 | `landing_volume` | Volume name for landed FHIR bundles | `landing` |
-| `run_as_user` | User or service principal for job run_as | set per target |
-| `synthea_job_id` | Resolved by lookup from job name `synthea_on_dbx_job` | lookup |
-| `higher_level_service_principal` | SP application ID for hedis/hls_fde | `acf021b4-...` |
+| `run_as_user` | User or SP for job run_as | per target |
+| `synthea_job_id` | Resolved by lookup: `synthea_on_dbx_job` | lookup |
 
 ---
 
 ## Documentation
 
-- [Declarative Automation Bundles in the workspace](https://docs.databricks.com/aws/en/dev-tools/bundles/workspace-bundles)
+- [Declarative Automation Bundles](https://docs.databricks.com/aws/en/dev-tools/bundles/workspace-bundles)
 - [DABs configuration reference](https://docs.databricks.com/aws/en/dev-tools/bundles/reference)
 - [DABs variable lookups](https://docs.databricks.com/aws/en/dev-tools/bundles/variables/)
 - [synthea-on-fhir repo](https://github.com/mkgs-databricks-demos/synthea-on-fhir)
+- `fixtures/architecture/` — design docs for gold layer, YAML engine, clinical mart
+- `fixtures/sessions/` — chronological development session logs

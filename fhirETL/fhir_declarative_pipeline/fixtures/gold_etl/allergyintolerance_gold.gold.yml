@@ -1,0 +1,104 @@
+# FHIR Gold Table: allergyintolerance_gold
+# Source: silver allergyintolerance table
+# Consumer: medication safety alerts, allergy registries, CDS rules
+
+table:
+  name: allergyintolerance_gold
+  comment: >-
+    Entity-resolved canonical allergy/intolerance. One row per unique
+    patient+substance+recorded_date. Consumer: medication safety alerts,
+    allergy registries, clinical decision support rules.
+  cluster_by:
+    - patient_natural_key
+    - code
+
+source:
+  silver_table: allergyintolerance
+  join_type: event
+  patient_ref_field: patient
+
+natural_key:
+  column_name: allergyintolerance_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "e.codes[0].code"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.recordedDate', 'STRING')"
+      default: "NULL"
+
+columns:
+  - name: allergyintolerance_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this allergy/intolerance record."
+    source: "e.allergyintolerance_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. The patient with this allergy or intolerance."
+    source: "{{patient_natural_key}}"
+
+  - name: code
+    type: STRING
+    comment: "Substance/product code (SNOMED) causing the allergy (e.g., 387207008 = Ibuprofen)."
+    source: "e.codes[0].code"
+
+  - name: code_system
+    type: STRING
+    comment: "Code system URI (typically http://snomed.info/sct)."
+    source: "e.codes[0].system"
+
+  - name: code_display
+    type: STRING
+    comment: "Human-readable allergen name (e.g., Penicillin, Latex, Tree pollen)."
+    source: "e.codes[0].display"
+
+  - name: category
+    type: STRING
+    comment: "Category of allergen: food, medication, environment, biologic."
+    source: "try_variant_get(e.resource, '$.category[0]', 'STRING')"
+
+  - name: criticality
+    type: STRING
+    comment: "Worst-case consequence risk: low, high, unable-to-assess. Drives alert severity."
+    source: "try_variant_get(e.resource, '$.criticality', 'STRING')"
+
+  - name: allergy_type
+    type: STRING
+    comment: "Whether this is an allergy (immune-mediated) or intolerance (non-immune)."
+    source: "try_variant_get(e.resource, '$.type', 'STRING')"
+
+  - name: clinical_status
+    type: STRING
+    comment: "Current status: active, inactive, resolved."
+    source: "try_variant_get(e.resource, '$.clinicalStatus.coding[0].code', 'STRING')"
+
+  - name: verification_status
+    type: STRING
+    comment: "Certainty: unconfirmed, confirmed, refuted, entered-in-error."
+    source: "try_variant_get(e.resource, '$.verificationStatus.coding[0].code', 'STRING')"
+
+  - name: recorded_date
+    type: DATE
+    comment: "Date the allergy was first recorded in the system."
+    source: "CAST(try_variant_get(e.resource, '$.recordedDate', 'STRING') AS DATE)"
+
+  - name: onset_datetime
+    type: TIMESTAMP
+    comment: "When the allergy first manifested clinically."
+    source: "CAST(try_variant_get(e.resource, '$.onsetDateTime', 'STRING') AS TIMESTAMP)"
+
+  - name: codes
+    type: "ARRAY<STRUCT<system: STRING, code: STRING, display: STRING>>"
+    comment: "All codings for the substance (supports multi-code scenarios)."
+    source: "e.codes"
+
+expectations:
+  - name: allergy_nk_not_null
+    expr: "allergyintolerance_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn

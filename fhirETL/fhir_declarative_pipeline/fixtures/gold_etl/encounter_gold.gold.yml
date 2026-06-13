@@ -1,0 +1,104 @@
+# FHIR Gold Table: encounter_gold
+# Source: silver encounter table
+# Consumer: utilization dashboards, HEDIS visit-based measures, readmission analysis
+
+table:
+  name: encounter_gold
+  comment: >-
+    Entity-resolved canonical encounter (visit). One row per real-world
+    healthcare encounter. Dedup key: sha2(patient_nk + class + type_code +
+    period_start). Source: silver encounter joined with silver patient.
+  cluster_by:
+    - patient_natural_key
+    - period_start
+
+source:
+  silver_table: encounter
+  join_type: event
+  patient_ref_field: subject
+
+natural_key:
+  column_name: encounter_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.class.code', 'STRING')"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.type[0].coding[0].code', 'STRING')"
+      default: "UNTYPED"
+    - expr: "e.clinical_event_effective_start"
+      default: "NULL"
+
+columns:
+  - name: encounter_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl. Used by downstream views to resolve encounter context references."
+    source: "e.encounter_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. Resolved from encounter.subject reference via intra-bundle join."
+    source: "{{patient_natural_key}}"
+
+  - name: encounter_class
+    type: STRING
+    comment: "Visit classification: AMB (ambulatory), EMER (emergency), IMP (inpatient), HH, VR."
+    source: "try_variant_get(e.resource, '$.class.code', 'STRING')"
+
+  - name: encounter_type_code
+    type: STRING
+    comment: "SNOMED encounter type code from resource.type[0].coding[0].code."
+    source: "try_variant_get(e.resource, '$.type[0].coding[0].code', 'STRING')"
+
+  - name: encounter_type_display
+    type: STRING
+    comment: "Human-readable encounter type."
+    source: "try_variant_get(e.resource, '$.type[0].coding[0].display', 'STRING')"
+
+  - name: status
+    type: STRING
+    comment: "Encounter lifecycle status: planned, arrived, triaged, in-progress, finished, cancelled."
+    source: "e.status"
+
+  - name: period_start
+    type: TIMESTAMP
+    comment: "When the encounter began. Clinical event timestamp — NOT an SCD validity date."
+    source: "CAST(e.clinical_event_effective_start AS TIMESTAMP)"
+
+  - name: period_end
+    type: TIMESTAMP
+    comment: "When the encounter ended. NULL for encounters still in progress."
+    source: "CAST(e.clinical_event_effective_end AS TIMESTAMP)"
+
+  - name: reason_code
+    type: STRING
+    comment: "Primary reason for visit — SNOMED code."
+    source: "try_variant_get(e.resource, '$.reasonCode[0].coding[0].code', 'STRING')"
+
+  - name: reason_display
+    type: STRING
+    comment: "Human-readable reason for visit."
+    source: "try_variant_get(e.resource, '$.reasonCode[0].coding[0].display', 'STRING')"
+
+  - name: references
+    type: "ARRAY<STRUCT<field: STRING, url: STRING, type: STRING, display: STRING>>"
+    comment: "All FHIR references (subject, participant, serviceProvider, location)."
+    source: "e.references"
+
+expectations:
+  - name: encounter_nk_not_null
+    expr: "encounter_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn
+
+  - name: valid_encounter_class
+    expr: "encounter_class IN ('AMB', 'EMER', 'IMP', 'HH', 'VR') OR encounter_class IS NULL"
+    action: warn
+
+  - name: period_start_not_null
+    expr: "period_start IS NOT NULL"
+    action: warn
