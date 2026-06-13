@@ -58,6 +58,16 @@ def _gold(table: str) -> str:
     return f"STREAM({_catalog}.{_schema}.{table})"
 
 
+def _static(table: str) -> str:
+    """Fully-qualified static (snapshot) reference to a gold table.
+
+    Use for dimension lookup tables in stream-stream join CTEs.
+    Structured Streaming does not support stream-stream LEFT OUTER joins
+    without watermarks; the dimension side must be a static read.
+    """
+    return f"{_catalog}.{_schema}.{table}"
+
+
 # ===========================================================================
 # DIMENSION SOURCE VIEWS + CDC FLOWS
 # ===========================================================================
@@ -241,18 +251,19 @@ def _fact_encounter_src():
             WHERE encounter_natural_key IS NOT NULL
               AND patient_natural_key   IS NOT NULL
         ),
-        -- TD-1: dimension FK lookups — activate when schema is updated
+        -- Dimension lookups are static reads (no STREAM) to avoid
+        -- unsupported stream-stream LEFT OUTER join (no watermark available).
         prac AS (
             SELECT practitioner_natural_key, practitioner_url
-            FROM   {_gold('practitioner_gold')}
+            FROM   {_static('practitioner_gold')}
         ),
         org  AS (
             SELECT organization_natural_key, organization_url
-            FROM   {_gold('organization_gold')}
+            FROM   {_static('organization_gold')}
         ),
         loc  AS (
             SELECT location_natural_key, location_url
-            FROM   {_gold('location_gold')}
+            FROM   {_static('location_gold')}
         )
         SELECT
             enc.encounter_natural_key,
