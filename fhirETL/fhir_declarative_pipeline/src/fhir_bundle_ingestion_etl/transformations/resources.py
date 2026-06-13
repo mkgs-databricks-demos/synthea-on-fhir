@@ -1,9 +1,41 @@
 from pyspark import pipelines as dp
+from pyspark.sql.functions import col
 
 
-@dp.table(
+# ---------------------------------------------------------------------------
+# fhir_resources_variant — CDC upsert target keyed on resource_uuid
+# ---------------------------------------------------------------------------
+
+@dp.temporary_view(name="fhir_resources_variant_src")
+def _fhir_resources_variant_src():
+    """Streaming source: one row per bundle entry with the full resource VARIANT.
+
+    Feeds the CDC flow for fhir_resources_variant. bundle_uuid is now a
+    deterministic hash of (file_path + unix_millis(file_modification_time)),
+    so resource_uuid is stable across replays of the same file.
+    """
+    return spark.sql("""
+        SELECT
+            sha2(concat(bundle_uuid, entry.value:fullUrl::string), 256) AS resource_uuid,
+            bundle_uuid,
+            CAST(entry.value:fullUrl AS STRING) AS fullUrl,
+            CAST(entry.value:resource.resourceType AS STRING) AS resourceType,
+            ingest_time,
+            entry.value:resource AS resource
+        FROM
+            STREAM(fhir_bronze_variant),
+            LATERAL variant_explode(fhir:entry) AS entry
+    """)
+
+
+dp.create_streaming_table(
+    name="fhir_resources_variant",
     comment=(
         "One row per FHIR resource with the full resource preserved as VARIANT. "
+        "CDC upsert target keyed on resource_uuid (SCD Type 1): the most recently "
+        "ingested version of each resource wins. Stable across file replays — "
+        "replaying a bundle produces identical resource_uuid values and updates "
+        "existing rows rather than appending duplicates. "
         "Universal staging layer for: (1) fully-streaming silver analytics tables "
         "(VARIANT path extraction, no PIVOT), (2) FHIR server loading via NDJSON "
         "export or direct VARIANT->JSONB for Aidbox on Databricks Lakebase, and "
@@ -11,15 +43,15 @@ from pyspark import pipelines as dp
     ),
     schema="""
         resource_uuid STRING NOT NULL PRIMARY KEY
-            COMMENT 'Unique identifier for the FHIR resource (SHA-256 of bundle_uuid + fullUrl).',
+            COMMENT 'Deterministic identifier for the FHIR resource (SHA-256 of bundle_uuid + fullUrl). Stable across replays because bundle_uuid is derived from file path and modification time, not uuid().',
         bundle_uuid STRING NOT NULL
-            COMMENT 'Unique identifier for the FHIR bundle containing this resource.',
+            COMMENT 'Stable identifier for the FHIR bundle, derived from file path and modification time.',
         fullUrl STRING NOT NULL
             COMMENT 'The full URL of the resource in the bundle entry array.',
         resourceType STRING NOT NULL
             COMMENT 'The FHIR resource type (e.g., Patient, Encounter, Condition).',
         ingest_time TIMESTAMP NOT NULL
-            COMMENT 'The timestamp the source bundle file was ingested.',
+            COMMENT 'The timestamp the source bundle file was most recently ingested. Used as CDC sequence; the most recent ingestion wins (SCD Type 1).',
         resource VARIANT
             COMMENT 'The complete FHIR resource as a VARIANT document. Queryable via path expressions (resource:fieldName).'
     """,
@@ -35,28 +67,14 @@ from pyspark import pipelines as dp
         "quality": "bronze",
     },
 )
-def fhir_resources_variant():
-    """Explode bundle entries into one row per resource, preserving the full resource VARIANT.
 
-    Unlike fhir_resources (which explodes the resource itself into key-value rows
-    for schema discovery), this table keeps each resource as a single VARIANT
-    document. This is the ideal format for:
-    - Streaming silver tables (filter by resourceType + VARIANT path extraction)
-    - FHIR server bulk loading (NDJSON export or JSONB insert)
-    - Ad-hoc queries via resource:fieldName path syntax
-    """
-    return spark.sql("""
-        SELECT
-            sha2(concat(bundle_uuid, entry.value:fullUrl::string), 256) AS resource_uuid,
-            bundle_uuid,
-            CAST(entry.value:fullUrl AS STRING) AS fullUrl,
-            CAST(entry.value:resource.resourceType AS STRING) AS resourceType,
-            ingest_time,
-            entry.value:resource AS resource
-        FROM
-            STREAM(fhir_bronze_variant),
-            LATERAL variant_explode(fhir:entry) AS entry
-    """)
+dp.create_auto_cdc_flow(
+    target="fhir_resources_variant",
+    source="fhir_resources_variant_src",
+    keys=["resource_uuid"],
+    sequence_by=col("ingest_time"),
+    stored_as_scd_type=1,
+)
 
 
 @dp.table(
