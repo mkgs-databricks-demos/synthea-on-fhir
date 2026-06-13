@@ -1,0 +1,94 @@
+# FHIR Gold Table: documentreference_gold
+# Source: silver documentreference table
+# Consumer: clinical document search, note retrieval, document analytics
+
+table:
+  name: documentreference_gold
+  comment: >-
+    Entity-resolved canonical document reference. One row per unique
+    patient+type+date. Points to clinical documents (notes, reports).
+    Consumer: clinical document search, note retrieval, USCDI compliance.
+  cluster_by:
+    - patient_natural_key
+    - document_type_code
+
+source:
+  silver_table: documentreference
+  join_type: event
+  patient_ref_field: subject
+
+natural_key:
+  column_name: documentreference_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.type.coding[0].code', 'STRING')"
+      default: "UNKNOWN"
+    - expr: "e.clinical_event_effective_start"
+      default: "NULL"
+
+columns:
+  - name: documentreference_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this document reference."
+    source: "e.documentreference_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. The patient this document belongs to."
+    source: "{{patient_natural_key}}"
+
+  - name: status
+    type: STRING
+    comment: "Document status: current, superseded, entered-in-error."
+    source: "e.status"
+
+  - name: document_type_code
+    type: STRING
+    comment: "LOINC document type code (e.g., 34117-2 = History and physical note)."
+    source: "try_variant_get(e.resource, '$.type.coding[0].code', 'STRING')"
+
+  - name: document_type_display
+    type: STRING
+    comment: "Human-readable document type."
+    source: "try_variant_get(e.resource, '$.type.coding[0].display', 'STRING')"
+
+  - name: category_code
+    type: STRING
+    comment: "US Core document category (e.g., clinical-note)."
+    source: "try_variant_get(e.resource, '$.category[0].coding[0].code', 'STRING')"
+
+  - name: category_display
+    type: STRING
+    comment: "Human-readable document category."
+    source: "try_variant_get(e.resource, '$.category[0].coding[0].display', 'STRING')"
+
+  - name: document_date
+    type: TIMESTAMP
+    comment: "When the document was created/indexed."
+    source: "CAST(e.clinical_event_effective_start AS TIMESTAMP)"
+
+  - name: content_type
+    type: STRING
+    comment: "MIME type of the document content (e.g., text/plain, application/pdf)."
+    source: "try_variant_get(e.resource, '$.content[0].attachment.contentType', 'STRING')"
+
+  - name: _custodian_display
+    type: STRING
+    comment: "Organization that maintains the document."
+    source: "FILTER(e.references, x -> x.field = 'custodian')[0].display"
+
+  - name: references
+    type: "ARRAY<STRUCT<field: STRING, url: STRING, type: STRING, display: STRING>>"
+    comment: "All references (subject, custodian, author, encounter context)."
+    source: "e.references"
+
+expectations:
+  - name: docref_nk_not_null
+    expr: "documentreference_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn

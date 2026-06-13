@@ -1,0 +1,66 @@
+# FHIR Clinical Mart pipeline.
+#
+# Builds entity-resolved dimensions (SCD2) and deduplicated fact tables from
+# the FHIR Gold tables (entity-resolved SCD1 in the fhir schema). Produces:
+#
+#   Dimensions: dim_patient, dim_practitioner, dim_organization, dim_location
+#   Facts:      fact_encounter, fact_condition, fact_observation, fact_procedure,
+#               fact_medication_request, fact_immunization, fact_claim
+#   Bridges:    patient_identity_bridge
+#
+# Uses ${resources.schemas.clinical_mart_schema.name} to resolve the clinical mart
+# schema name correctly across dev (auto-prefixed) and production targets.
+#
+# This pipeline should run AFTER fhir_resource_silver_etl has completed
+# (and after the FHIR Gold tables are populated in the fhir schema).
+
+resources:
+  pipelines:
+    fhir_gold_clinical_mart:
+      name: FHIR Clinical Mart
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.clinical_mart_schema.name}
+      serverless: true
+      channel: "PREVIEW"
+      continuous: false
+      edition: "ADVANCED"
+      root_path: "../src/fhir_gold_clinical_mart"
+
+      libraries:
+        - glob:
+            include: ../src/fhir_gold_clinical_mart/transformations/**
+
+      configuration:
+        pipeline.catalog_use: "${var.catalog}"
+        pipeline.silver_schema_use: "${var.schema_resolved}"
+        pipeline.clinical_mart_schema_use: "${resources.schemas.clinical_mart_schema.name}"
+
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${resources.schemas.clinical_mart_schema.name}
+        name: fhir_gold_clinical_mart_event_log
+
+      notifications:
+        - email_recipients:
+            - matthew.giglia@databricks.com
+          alerts:
+            - on-update-success
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+
+      permissions:
+        - user_name: matthew.giglia@databricks.com
+          level: CAN_MANAGE
+
+      tags:
+        project: ${var.tags_project}
+        businessUnit: ${var.tags_businessUnit}
+        requestedBy: ${var.tags_requestedBy}
+        developer: ${var.tags_developer}
+        RemoveAfter: ${var.tags_RemoveAfter}
+        env: ${bundle.target}
+
+      environment:
+        dependencies:
+          - --editable ${workspace.file_path}

@@ -1,0 +1,94 @@
+# FHIR Gold Table: procedure_gold
+# Source: silver procedure table
+# Consumer: surgical history, procedure analytics, HEDIS procedure-based measures
+
+table:
+  name: procedure_gold
+  comment: >-
+    Entity-resolved canonical procedure. One row per unique
+    patient+code+performed_start. Consumer: surgical history, procedure
+    analytics, HEDIS procedure-based measures.
+  cluster_by:
+    - patient_natural_key
+    - code
+
+source:
+  silver_table: procedure
+  join_type: event
+  patient_ref_field: subject
+
+natural_key:
+  column_name: procedure_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "e.codes[0].code"
+      default: "UNKNOWN"
+    - expr: "e.clinical_event_effective_start"
+      default: "NULL"
+
+columns:
+  - name: procedure_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this procedure."
+    source: "e.procedure_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. The patient who underwent this procedure."
+    source: "{{patient_natural_key}}"
+
+  - name: code
+    type: STRING
+    comment: "SNOMED procedure code (e.g., 73761001 = Colonoscopy)."
+    source: "e.codes[0].code"
+
+  - name: code_system
+    type: STRING
+    comment: "Code system URI (typically http://snomed.info/sct)."
+    source: "e.codes[0].system"
+
+  - name: code_display
+    type: STRING
+    comment: "Human-readable procedure name."
+    source: "e.codes[0].display"
+
+  - name: status
+    type: STRING
+    comment: "Procedure status: preparation, in-progress, not-done, on-hold, stopped, completed, entered-in-error."
+    source: "e.status"
+
+  - name: performed_start
+    type: TIMESTAMP
+    comment: "When the procedure started."
+    source: "CAST(e.clinical_event_effective_start AS TIMESTAMP)"
+
+  - name: performed_end
+    type: TIMESTAMP
+    comment: "When the procedure ended. NULL if instantaneous or duration not recorded."
+    source: "CAST(e.clinical_event_effective_end AS TIMESTAMP)"
+
+  - name: body_site_code
+    type: STRING
+    comment: "SNOMED body site code where the procedure was performed."
+    source: "try_variant_get(e.resource, '$.bodySite[0].coding[0].code', 'STRING')"
+
+  - name: body_site_display
+    type: STRING
+    comment: "Human-readable body site name."
+    source: "try_variant_get(e.resource, '$.bodySite[0].coding[0].display', 'STRING')"
+
+  - name: codes
+    type: "ARRAY<STRUCT<system: STRING, code: STRING, display: STRING>>"
+    comment: "All procedure codings (SNOMED, CPT, ICD-10-PCS)."
+    source: "e.codes"
+
+expectations:
+  - name: procedure_nk_not_null
+    expr: "procedure_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn

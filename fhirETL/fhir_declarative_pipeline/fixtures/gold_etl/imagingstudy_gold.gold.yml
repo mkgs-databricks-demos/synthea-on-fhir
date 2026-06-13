@@ -1,0 +1,109 @@
+# FHIR Gold Table: imagingstudy_gold
+# Source: silver imagingstudy table
+# Consumer: imaging utilization, radiology workflows, HEDIS imaging measures
+
+table:
+  name: imagingstudy_gold
+  comment: >-
+    Entity-resolved canonical imaging study. One row per unique
+    patient+procedure_code+started. Tracks radiology/imaging events.
+    Consumer: imaging utilization, radiology workflows, HEDIS imaging measures.
+  cluster_by:
+    - patient_natural_key
+    - started
+
+source:
+  silver_table: imagingstudy
+  join_type: event
+  patient_ref_field: subject
+
+natural_key:
+  column_name: imagingstudy_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.procedureCode[0].coding[0].code', 'STRING')"
+      default: "UNKNOWN"
+    - expr: "e.clinical_event_effective_start"
+      default: "NULL"
+
+columns:
+  - name: imagingstudy_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this imaging study."
+    source: "e.imagingstudy_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. The patient who underwent the imaging study."
+    source: "{{patient_natural_key}}"
+
+  - name: status
+    type: STRING
+    comment: "Study status: registered, available, cancelled, entered-in-error."
+    source: "e.status"
+
+  - name: started
+    type: TIMESTAMP
+    comment: "When the imaging study started."
+    source: "CAST(e.clinical_event_effective_start AS TIMESTAMP)"
+
+  - name: procedure_code
+    type: STRING
+    comment: "SNOMED procedure code for the imaging study."
+    source: "try_variant_get(e.resource, '$.procedureCode[0].coding[0].code', 'STRING')"
+
+  - name: procedure_display
+    type: STRING
+    comment: "Human-readable imaging procedure name."
+    source: "try_variant_get(e.resource, '$.procedureCode[0].coding[0].display', 'STRING')"
+
+  - name: number_of_series
+    type: INT
+    comment: "Number of imaging series in the study."
+    source: "CAST(try_variant_get(e.resource, '$.numberOfSeries', 'STRING') AS INT)"
+
+  - name: number_of_instances
+    type: INT
+    comment: "Total number of images/instances across all series."
+    source: "CAST(try_variant_get(e.resource, '$.numberOfInstances', 'STRING') AS INT)"
+
+  - name: body_site_code
+    type: STRING
+    comment: "SNOMED body site code from the first series."
+    source: "try_variant_get(e.resource, '$.series[0].bodySite.code', 'STRING')"
+
+  - name: body_site_display
+    type: STRING
+    comment: "Human-readable body site name."
+    source: "try_variant_get(e.resource, '$.series[0].bodySite.display', 'STRING')"
+
+  - name: modality_code
+    type: STRING
+    comment: "Imaging modality (e.g., DX = Digital Radiography, CT, MR)."
+    source: "try_variant_get(e.resource, '$.series[0].modality.code', 'STRING')"
+
+  - name: _encounter_ref_url
+    type: STRING
+    comment: "Encounter reference URL for downstream encounter FK resolution."
+    source: "FILTER(e.references, x -> x.field = 'encounter')[0].url"
+
+  - name: _location_display
+    type: STRING
+    comment: "Display name of the imaging location/facility."
+    source: "FILTER(e.references, x -> x.field = 'location')[0].display"
+
+  - name: references
+    type: "ARRAY<STRUCT<field: STRING, url: STRING, type: STRING, display: STRING>>"
+    comment: "All references (subject, encounter, location)."
+    source: "e.references"
+
+expectations:
+  - name: imaging_nk_not_null
+    expr: "imagingstudy_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn

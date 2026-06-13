@@ -1,0 +1,111 @@
+# FHIR Gold Table: claim_gold
+# Source: silver claim table
+# Consumer: claims analytics, financial reporting, HEDIS utilization tracking
+
+table:
+  name: claim_gold
+  comment: >-
+    Entity-resolved canonical healthcare claim (submitted charges).
+    One row per unique patient+type+billable_period+total.
+    Consumer: claims analytics, financial reporting, HEDIS utilization tracking.
+  cluster_by:
+    - patient_natural_key
+    - claim_type_code
+    - billable_period_start
+
+source:
+  silver_table: claim
+  join_type: event
+  patient_ref_field: patient
+
+natural_key:
+  column_name: claim_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "{{patient_natural_key}}"
+      default: "UNKNOWN"
+    - expr: "try_variant_get(e.resource, '$.type.coding[0].code', 'STRING')"
+      default: "UNKNOWN"
+    - expr: "e.clinical_event_effective_start"
+      default: "NULL"
+    - expr: "try_variant_get(e.resource, '$.total.value', 'STRING')"
+      default: "0"
+
+columns:
+  - name: claim_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl. Used by EOB to reference the original claim."
+    source: "e.claim_url"
+
+  - name: patient_natural_key
+    type: STRING
+    comment: "FK to patient_gold. The patient this claim is for."
+    source: "{{patient_natural_key}}"
+
+  - name: claim_type_code
+    type: STRING
+    comment: "Claim type code: institutional, oral, pharmacy, professional, vision."
+    source: "try_variant_get(e.resource, '$.type.coding[0].code', 'STRING')"
+
+  - name: claim_type_display
+    type: STRING
+    comment: "Human-readable claim type."
+    source: "try_variant_get(e.resource, '$.type.coding[0].display', 'STRING')"
+
+  - name: status
+    type: STRING
+    comment: "Claim status: active, cancelled, draft, entered-in-error."
+    source: "e.status"
+
+  - name: claim_use
+    type: STRING
+    comment: "Claim use: claim (requesting payment), preauthorization, predetermination."
+    source: "try_variant_get(e.resource, '$.use', 'STRING')"
+
+  - name: billable_period_start
+    type: TIMESTAMP
+    comment: "Start of the service/billing period covered by this claim."
+    source: "CAST(e.clinical_event_effective_start AS TIMESTAMP)"
+
+  - name: billable_period_end
+    type: TIMESTAMP
+    comment: "End of the service/billing period."
+    source: "CAST(e.clinical_event_effective_end AS TIMESTAMP)"
+
+  - name: total_value
+    type: DOUBLE
+    comment: "Total claimed amount in currency units."
+    source: "CAST(try_variant_get(e.resource, '$.total.value', 'STRING') AS DOUBLE)"
+
+  - name: total_currency
+    type: STRING
+    comment: "Currency code (typically USD)."
+    source: "try_variant_get(e.resource, '$.total.currency', 'STRING')"
+
+  - name: _provider_ref_url
+    type: STRING
+    comment: "Provider reference URL for downstream practitioner/organization FK resolution."
+    source: "FILTER(e.references, x -> x.field = 'provider')[0].url"
+
+  - name: references
+    type: "ARRAY<STRUCT<field: STRING, url: STRING, type: STRING, display: STRING>>"
+    comment: "All references (patient, provider, insurer, prescription, encounter)."
+    source: "e.references"
+
+  - name: codes
+    type: "ARRAY<STRUCT<system: STRING, code: STRING, display: STRING>>"
+    comment: "Claim-level codes (diagnosis, procedure codes from claim items)."
+    source: "e.codes"
+
+expectations:
+  - name: claim_nk_not_null
+    expr: "claim_natural_key IS NOT NULL"
+    action: drop
+
+  - name: patient_nk_not_null
+    expr: "patient_natural_key IS NOT NULL"
+    action: warn
+
+  - name: valid_claim_type
+    expr: "claim_type_code IN ('institutional', 'oral', 'pharmacy', 'professional', 'vision') OR claim_type_code IS NULL"
+    action: warn

@@ -1,0 +1,69 @@
+# FHIR Gold Table: medication_gold
+# Source: silver medication table
+# Consumer: medication reference lookups, formulary management, drug analytics
+#
+# NOTE: This is a REFERENCE entity table (no patient FK). Medications are
+# standalone resources referenced by MedicationRequest and MedicationAdministration.
+# join_type: entity (no patient join).
+
+table:
+  name: medication_gold
+  comment: >-
+    Canonical medication reference entity. One row per unique RxNorm code.
+    Standalone dimension — no patient FK. Referenced by medication_request_gold
+    and medicationadministration_gold via medication codes.
+    Consumer: formulary lookups, drug interaction checks, prescribing analytics.
+  cluster_by:
+    - medication_code
+
+source:
+  silver_table: medication
+  join_type: entity
+  patient_ref_field: null
+
+natural_key:
+  column_name: medication_natural_key
+  strategy: composite_sha2
+  components:
+    - expr: "e.codes[0].code"
+      default: "UNKNOWN"
+
+columns:
+  - name: medication_url
+    type: STRING
+    comment: "Most recent FHIR fullUrl for this medication definition."
+    source: "e.medication_url"
+
+  - name: medication_code
+    type: STRING
+    comment: "RxNorm code for the medication (e.g., 1535362)."
+    source: "e.codes[0].code"
+
+  - name: medication_system
+    type: STRING
+    comment: "Code system URI (typically http://www.nlm.nih.gov/research/umls/rxnorm)."
+    source: "e.codes[0].system"
+
+  - name: medication_display
+    type: STRING
+    comment: "Human-readable medication name with dose form (e.g., sodium fluoride 0.0272 MG/MG Oral Gel)."
+    source: "e.codes[0].display"
+
+  - name: status
+    type: STRING
+    comment: "Medication status: active, inactive, entered-in-error."
+    source: "e.status"
+
+  - name: codes
+    type: "ARRAY<STRUCT<system: STRING, code: STRING, display: STRING>>"
+    comment: "All medication codings (RxNorm + NDC when available)."
+    source: "e.codes"
+
+expectations:
+  - name: medication_nk_not_null
+    expr: "medication_natural_key IS NOT NULL"
+    action: drop
+
+  - name: medication_code_not_null
+    expr: "medication_code IS NOT NULL"
+    action: warn
