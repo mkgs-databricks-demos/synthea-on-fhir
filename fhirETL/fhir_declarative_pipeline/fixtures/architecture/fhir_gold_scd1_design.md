@@ -26,20 +26,23 @@ Key properties:
 
 ## 2. Pipeline Location
 
-These tables are produced by the existing `fhir_resource_silver_etl` pipeline (extended),
-NOT by a separate pipeline. They are the natural "resolved" output of silver processing.
+These tables are produced by a dedicated `fhir_gold_etl` pipeline, separate from
+the silver pipeline. This separation allows independent refresh cadence and isolates
+entity resolution logic (which depends on silver tables being fully populated first).
 
 ```
-fhir_resource_silver_etl/
+src/fhir_gold_etl/
+├── schema/
+│   └── gold_table_schema.py         # Pydantic validation models for YAML configs
 ├── transformations/
-│   ├── silver.py                    # Existing: per-type extract + Auto CDC Type 1
-│   ├── entity_resolution.py         # NEW: identifier normalization + natural key assignment
-│   └── fhir_gold.py                 # NEW: resolved _gold tables via Auto CDC Type 1
+│   ├── entity_resolution.py         # 3 entity views + event views (identifier cascades)
+│   ├── fhir_gold.py                 # 3 entity streaming tables + Auto CDC Type 1
+│   ├── gold_overrides.py            # location_gold (correlated subquery) + patient_identity_bridge
+│   └── gold_engine.py               # YAML-driven: reads fixtures/gold_etl/*.gold.yml, 20 tables
 ```
 
-Alternative: a lightweight separate pipeline. Decision depends on whether the entity
-resolution logic needs different compute/refresh cadence than silver. For now, same
-pipeline keeps the dependency chain simple.
+Pipeline config: `resources/fhir_gold_etl.pipeline.yml`
+Pipeline ID (dev): `74842515-face-4150-a800-c2ea2a3400ac`
 
 ---
 

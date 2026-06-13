@@ -38,10 +38,10 @@ src/fhir_gold_etl/
     gold_table_schema.py              # Pydantic validation model
     __init__.py
   transformations/
-    gold_engine.py                    # Generic engine (reads YAML, emits tables)
-    gold_overrides.py                 # Hand-coded edge cases (location, bridge)
-    entity_resolution.py             # DEPRECATED after full migration
-    fhir_gold.py                     # DEPRECATED after full migration
+    gold_engine.py                    # Generic engine (reads YAML, emits tables) — 20 tables
+    gold_overrides.py                 # Hand-coded edge cases (location_gold, patient_identity_bridge)
+    entity_resolution.py             # Identifier cascades + event resolution views (ACTIVE)
+    fhir_gold.py                     # Entity streaming tables: patient/practitioner/organization (ACTIVE)
 ```
 
 ### Execution Flow

@@ -1,7 +1,8 @@
 # Gold Layer — Design Document (Dual-Gold Architecture)
 
-> Status: IMPLEMENTED (FHIR Gold layer complete; Clinical Mart pending)
+> Status: IMPLEMENTED (FHIR Gold layer complete; Clinical Mart LIVE — 10 tables, integrity verified)
 > Created: 2026-06-12
+> Updated: 2026-06-13
 > Context: fhir_declarative_pipeline silver v3 is complete (177M rows, 24 tables, uniform 10-column schema)
 
 ---
@@ -138,55 +139,47 @@ When the same patient appears from multiple EMRs:
 
 ---
 
-## 4. Dimension Tables (SCD Type 2)
+## 4. Dimension Tables (SCD Type 1 — IMPLEMENTED)
+
+> **Implementation note**: The original design proposed SCD2 for dimensions.
+> The actual implementation uses **SCD1** (latest state wins) for all tables,
+> including dimensions. This simplifies the architecture and aligns with the
+> FHIR Gold layer pattern. SCD2 may be added in future if temporal history
+> is needed for HEDIS measurement years.
 
 ### 4.1 dim_patient
 
 ```sql
-CREATE TABLE gold.dim_patient (
-  -- Surrogate key
-  patient_key         BIGINT GENERATED ALWAYS AS IDENTITY,
-  
-  -- Natural key (stable across sources)
+-- Actual implementation: SCD1, keyed on patient_natural_key
+CREATE STREAMING TABLE dim_patient (
   patient_natural_key STRING NOT NULL,  -- SSN or MRN
-  
-  -- SCD2 validity
-  valid_from          TIMESTAMP NOT NULL,
-  valid_to            TIMESTAMP,         -- NULL = current
-  is_current          BOOLEAN NOT NULL,
-  
-  -- Flattened demographics (SCD1: overwritten on change)
+  full_name           STRING,
   family_name         STRING,
   given_name          STRING,
   birth_date          DATE,
   gender              STRING,
   deceased            BOOLEAN,
+  age_years           INT,              -- computed: datediff(years, birth_date, current_date)
+  age_band            STRING,           -- computed: 0-17, 18-34, 35-49, 50-64, 65+
   address_city        STRING,
   address_state       STRING,
   address_postal_code STRING,
-  
-  -- SCD2 tracked attributes (new row on change)
   marital_status      STRING,
-  
-  -- Provenance
-  source_patient_uuids  ARRAY<STRING>,  -- all silver patient_uuid values for this entity
-  last_updated        TIMESTAMP
+  resource_last_updated TIMESTAMP NOT NULL
 )
 ```
 
-### 4.2 SCD2 Implementation Pattern
+### 4.2 SCD1 Implementation Pattern (ACTUAL)
 
-Using Auto CDC with Type 2:
+Using Auto CDC with Type 1:
 
 ```python
 dp.create_auto_cdc_flow(
     target="dim_patient",
-    source="patient_resolved",
+    source="dim_patient_src",
     keys=["patient_natural_key"],
-    sequence_by="ingest_time",
-    scd_type=2,
-    track_history_column_list=["marital_status"],  # columns that trigger new SCD2 row
-    stored_as_scd_type_1=["family_name", "given_name", ..., "source_patient_uuids"]
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
 )
 ```
 

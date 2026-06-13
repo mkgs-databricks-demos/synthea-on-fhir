@@ -1,19 +1,24 @@
 # FHIR Resource Silver ETL pipeline.
 #
-# Dynamically generates typed silver tables for each FHIR resource type
-# discovered in fhir_resource_schemas (produced by the fhir_bundle_ingestion_etl
-# pipeline). For each resource type (e.g. Patient, Encounter, Condition):
+# Fully streaming architecture — no PIVOT, no materialized views, no batch
+# intermediaries. Dynamically generates one streaming table per FHIR resource
+# type discovered in fhir_resource_schemas (produced by fhir_bundle_ingestion_etl).
 #
-#   1. {resource_type}_raw  - Intermediate streaming table: PIVOTs exploded
-#                             key-value rows from fhir_resources into individual
-#                             VARIANT columns.
-#   2. {resource_type}      - Typed silver streaming table: CASTs each VARIANT
-#                             column to its inferred schema from
-#                             fhir_resource_schemas.
+# For each resource type (e.g. Patient, Encounter, Condition):
 #
-# Schema evolution is handled automatically: when new columns or changed struct
-# types appear in fhir_resource_schemas, the table definitions change and DLT
-# triggers a full refresh (pipelines.reset.allowed = true).
+#   1. {resource_type}_extract  - Temporary view: STREAM(fhir_resources) filtered
+#                                 by resourceType with VARIANT path extraction for
+#                                 references, identifiers, codes, and temporal fields.
+#   2. {resource_type}          - Target streaming table: Auto CDC Type 1 upserts
+#                                 keyed on {type}_uuid, sequenced by ingest_time.
+#
+# Uniform 10-column schema across all resource types:
+#   {type}_uuid, bundle_uuid, {type}_url, references, identifiers, codes, status,
+#   clinical_event_effective_start, clinical_event_effective_end, resource (VARIANT).
+#
+# All extraction uses try_variant_get (NULL-safe, no INVALID_VARIANT_CAST).
+# No PIVOT, no shuffle, no aggregation — purely per-row VARIANT path extraction.
+# Schema evolution: pipelines.reset.allowed = true on all silver tables.
 #
 # This pipeline should run AFTER fhir_bundle_ingestion_etl has completed.
 

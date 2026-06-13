@@ -3,14 +3,15 @@
 # Parses and transforms FHIR bundle resources into structured Delta tables.
 # Reads landed FHIR bundles from the landing volume via Auto Loader, ingests
 # them as text (fhir_bronze) and VARIANT (fhir_bronze_variant), then extracts
-# bundle metadata (bundle_meta), explodes entry resources (fhir_resources),
-# and infers schemas (fhir_resource_schemas).
+# bundle metadata (bundle_meta), individual resources (fhir_resources — one row
+# per resource with full VARIANT), EAV-exploded fields (fhir_resource_keys —
+# one row per named field within each resource), and inferred schemas
+# (fhir_resource_schemas).
 #
-# Silver tables are dynamically generated per FHIR resource type (e.g. Patient,
-# Encounter, Condition) by PIVOTing the exploded key-value pairs into individual
-# VARIANT columns. Resource types are discovered from fhir_resource_schemas on
-# subsequent runs (two-pass: first run populates bronze/resources, second run
-# creates silver tables).
+# This pipeline produces the universal staging layer consumed by the downstream
+# silver pipeline (fhir_resource_silver_etl). The silver pipeline reads from
+# fhir_resources (VARIANT path extraction) and fhir_resource_schemas (type
+# discovery). fhir_resource_keys is retained solely for schema inference.
 
 resources:
   pipelines:

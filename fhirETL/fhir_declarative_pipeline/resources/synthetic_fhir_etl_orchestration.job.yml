@@ -32,7 +32,8 @@ resources:
         End-to-end pipeline for synthetic FHIR data generation and ingestion.
         Runs synthea_on_dbx_job to generate synthetic bundles, then the FHIR
         Bundle Mover to land them, then the FHIR ETL Orchestration job to
-        ingest and process them through bronze and silver layers. Always runs
+        ingest and process them through the full pipeline stack (bronze,
+        silver, gold entity resolution, and clinical mart). Always runs
         incrementally. Set synthea_job_id in databricks.yml per target before
         deploying.
 

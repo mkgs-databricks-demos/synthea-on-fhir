@@ -2,7 +2,7 @@
 
 Canonical long-term memory for the FHIR Declarative Pipeline bundle.
 Read this at the start of every session before making changes.
-Last updated: 2026-06-13 (Clinical Mart first run — 10 tables live, full integrity verified; stream-stream join fix)
+Last updated: 2026-06-13 (PR #24 merged — clinical mart on main; 10 tables live, integrity verified)
 
 ---
 
@@ -65,17 +65,17 @@ Last updated: 2026-06-13 (Clinical Mart first run — 10 tables live, full integ
 - Six output tables:
   - `fhir_bronze` -- raw text ingestion via Auto Loader
   - `fhir_bronze_variant` -- VARIANT-parsed JSON
-  - `bundle_meta` -- bundle-level metadata
-  - `fhir_resources_variant` -- **one row per resource with full resource VARIANT** (universal staging)
-  - `fhir_resources` -- exploded key-value rows (2.1B rows across 24 resource types, retained for schema discovery)
-  - `fhir_resource_schemas` -- one row per resourceType/column with inferred VARIANT and struct schemas (288 rows)
+  - `bundle_meta` -- bundle-level metadata (Auto CDC keyed on bundle_uuid)
+  - `fhir_resources` -- **one row per resource with full resource VARIANT** (universal staging, Auto CDC keyed on resource_uuid)
+  - `fhir_resource_keys` -- EAV-exploded fields, one row per named key within each resource (Auto CDC keyed on resource_key_uuid). Retained for schema inference only.
+  - `fhir_resource_schemas` -- one row per resourceType/column with inferred VARIANT and struct schemas (reads from STREAM(fhir_resource_keys))
 - Config keys: `pipeline.landing_volume_path`, `pipeline.catalog_use`, `pipeline.schema_use`
-- `fhir_resources_variant` is the primary source for the silver pipeline AND future FHIR server loading
+- `fhir_resources` is the primary source for the silver pipeline AND future FHIR server loading
 
 ### 3. fhir_resource_silver_etl (v3 — FULLY STREAMING, clinical mart ready)
 - Reads `fhir_resource_schemas` to discover resource types + reference fields at planning time
 - Per resource type, TWO objects:
-  - `{type}_extract` (temporary view) -- `STREAM(fhir_resources_variant)` filtered by
+  - `{type}_extract` (temporary view) -- `STREAM(fhir_resources)` filtered by
     resourceType, extracts references/identifiers/codes/temporal via `try_variant_get`.
     Pure append-mode streaming, no aggregation, no shuffle.
   - `{type}` (streaming table) -- Auto CDC Type 1 upserts keyed on `{type}_uuid`,
@@ -191,7 +191,7 @@ Schema resources:
     delta.feature.variantType-preview:   supported
     pipelines.reset.allowed:             true
 
-Applied to all bronze tables (including `fhir_resources_variant`) and all 24 silver
+Applied to all bronze tables (including `fhir_resources`) and all 24 silver
 CDC target tables. Verified correct as of 2026-06-11.
 
 ### Fully streaming silver architecture (PIVOT eliminated)
@@ -201,7 +201,7 @@ PIVOT operations, CDF bridging, and the associated streaming compatibility issue
 
 **Previous architecture (DEPRECATED):**
 
-    fhir_resources (key-value EAV, 2.1B rows)
+    fhir_resource_keys (key-value EAV, 2.1B rows)
       -> {type}_raw (PIVOT + first() = MV/live table, Complete output mode)
       -> {type}_cdc_source (CDF bridge to get append-only stream)
       -> {type} (Auto CDC Type 1)
@@ -431,7 +431,7 @@ This is expected FHIR semantics — not an extraction gap.
 |---|---|
 | `src/fhir_bundle_mover/transformations/file_tracker.py` | Auto Loader + UDF file mover; `file_tracker` streaming table |
 | `src/fhir_bundle_ingestion_etl/transformations/bronze.py` | `fhir_bronze`, `fhir_bronze_variant` |
-| `src/fhir_bundle_ingestion_etl/transformations/resources.py` | `fhir_resources_variant`, `bundle_meta`, `fhir_resources`, `fhir_resource_schemas` |
+| `src/fhir_bundle_ingestion_etl/transformations/resources.py` | `fhir_resources` (one-per-resource VARIANT), `bundle_meta`, `fhir_resource_keys` (EAV), `fhir_resource_schemas` |
 | `src/fhir_resource_silver_etl/transformations/silver.py` | Dynamic silver table generation; reference/identifier/code/temporal extraction + Auto CDC per resource type |
 | `resources/fhir_bundle_mover.pipeline.yml` | Mover pipeline config |
 | `resources/fhir_bundle_ingestion_etl.pipeline.yml` | Ingestion pipeline config |

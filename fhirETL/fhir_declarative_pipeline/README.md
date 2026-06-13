@@ -50,9 +50,9 @@ volume. Results tracked in the `file_tracker` streaming table.
 ### 2. FHIR Bundle Resource Parsing ETL (`fhir_bundle_ingestion_etl`)
 Auto Loader text ingestion from the landing volume. Produces:
 - `fhir_bronze` / `fhir_bronze_variant` — raw text → VARIANT JSON
-- `bundle_meta` — bundle-level metadata
-- `fhir_resources_variant` — **one row per resource, full VARIANT** (universal staging)
-- `fhir_resources` — exploded key-value rows (retained for schema discovery)
+- `bundle_meta` — bundle-level metadata (Auto CDC, keyed on bundle_uuid)
+- `fhir_resources` — **one row per resource, full VARIANT** (universal staging, Auto CDC keyed on resource_uuid)
+- `fhir_resource_keys` — EAV-exploded fields (retained for schema discovery)
 - `fhir_resource_schemas` — inferred VARIANT + struct schemas per resource type
 
 ### 3. FHIR Resource Silver ETL (`fhir_resource_silver_etl`)
