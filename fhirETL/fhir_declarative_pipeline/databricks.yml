@@ -149,6 +149,8 @@ targets:
         level: CAN_RUN
       - service_principal_name: ${var.run_as_user}
         level: CAN_MANAGE
+      - service_principal_name: 47c0365e-b1af-429c-b56d-07cfb18b5dc7
+        level: CAN_MANAGE
 
   hls_fde:
     mode: production

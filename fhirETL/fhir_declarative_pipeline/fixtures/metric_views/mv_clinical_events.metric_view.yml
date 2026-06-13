@@ -2,53 +2,47 @@ version: 1.1
 source: >
   SELECT
     'condition' AS event_domain,
-    condition_key AS event_key,
-    condition_dedup_key AS dedup_key,
+    condition_natural_key AS event_key,
     patient_natural_key,
-    encounter_dedup_key,
-    condition_code AS primary_code,
-    condition_system AS code_system,
-    condition_display AS code_display,
+    code AS primary_code,
+    code_system,
+    code_display,
     category,
     clinical_status AS status,
     onset_datetime AS effective_datetime,
     NULL AS value_quantity,
     NULL AS value_unit,
-    last_updated
+    resource_last_updated
   FROM {catalog}.{clinical_mart_schema}.fact_condition
   UNION ALL
   SELECT
     'observation' AS event_domain,
-    observation_key AS event_key,
-    observation_dedup_key AS dedup_key,
+    observation_natural_key AS event_key,
     patient_natural_key,
-    encounter_dedup_key,
-    observation_code AS primary_code,
-    observation_system AS code_system,
-    observation_display AS code_display,
+    code AS primary_code,
+    NULL AS code_system,
+    code_display,
     category,
     NULL AS status,
     effective_datetime,
     value_quantity,
     value_unit,
-    last_updated
+    resource_last_updated
   FROM {catalog}.{clinical_mart_schema}.fact_observation
   UNION ALL
   SELECT
     'procedure' AS event_domain,
-    procedure_key AS event_key,
-    procedure_dedup_key AS dedup_key,
+    procedure_natural_key AS event_key,
     patient_natural_key,
-    encounter_dedup_key,
-    procedure_code AS primary_code,
-    procedure_system AS code_system,
-    procedure_display AS code_display,
+    code AS primary_code,
+    code_system,
+    code_display,
     NULL AS category,
     NULL AS status,
     performed_start AS effective_datetime,
     NULL AS value_quantity,
     NULL AS value_unit,
-    last_updated
+    resource_last_updated
   FROM {catalog}.{clinical_mart_schema}.fact_procedure
 comment: "Unified clinical event metrics spanning conditions, observations, and procedures. Supports cross-domain event analysis, patient longitudinal views, and clinical coding distribution."
 dimensions:
