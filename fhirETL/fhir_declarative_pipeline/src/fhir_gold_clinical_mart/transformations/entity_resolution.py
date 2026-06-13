@@ -1,30 +1,32 @@
-"""Clinical Mart — Entity Resolution Source Views and CDC Flows.
+"""Clinical Mart — Entity Resolution Source Views.
 
 Reads from the FHIR Gold tables (entity-resolved SCD1, in the FHIR schema)
-and produces:
-  1. Streaming temp views (*_src) that compute analytics-friendly columns
-     required by the clinical mart star schema but absent from the gold tables.
-  2. Auto CDC Type 1 flows that write each *_src view into the corresponding
-     streaming table declared in dimensions.py.
+and produces streaming temp views (*_src) that compute analytics-friendly
+columns required by the clinical mart star schema but absent from the gold
+tables.
+
+CDC flows (dp.create_auto_cdc_flow) are declared in dimensions.py,
+co-located with their dp.create_streaming_table() declarations — matching
+the convention in fhir_gold.py.
 
 Gold tables are already fully entity-resolved (natural keys assigned by the
 FHIR Gold ETL). This layer adds:
-  - dim_patient: age_years, age_band, full_name, primary_identifier_* (SSN/MRN)
+  - dim_patient   : age_years, age_band, full_name, primary_identifier_* (SSN/MRN)
   - dim_practitioner: full_name
-  - fact_encounter: length_of_stay_hours, is_emergency, is_inpatient
-  - fact_encounter: practitioner/org/location FKs via references array join
-      NOTE: URL-only join (no bundle_uuid scoping) — valid for Synthea bulk
-      exports where practitioner/org UUIDs are deterministic. Multi-source
-      real-EMR ingestion requires adding _bundle_uuid to encounter_gold.
+  - fact_encounter: length_of_stay_hours, is_emergency, is_inpatient;
+                    practitioner/org/location FK join logic present but
+                    commented out (TD-1 — columns not yet in dimensions.py schema)
   - fact_condition: is_chronic, is_active flags
-  - fact_observation: is_abnormal_low, is_abnormal_high flags
+  - fact_observation: is_abnormal_low/high (NULL-safe CASE)
   - fact_procedure: duration_minutes
 
 Tech-debt notes
   TD-1  fact_encounter missing practitioner_natural_key, organization_natural_key,
         location_natural_key — columns omitted from dimensions.py schema; FK
         resolution is implemented in fact_encounter_src but output columns
-        are commented out pending schema update.
+        are commented out pending schema update. URL-only join (no bundle_uuid
+        scoping) is valid for Synthea exports; real-EMR data requires
+        _bundle_uuid on encounter_gold.
   TD-2  fact_observation missing value_raw VARIANT (design doc §8a.6). Add
         `value_raw VARIANT` to dimensions.py fact_observation schema, then
         uncomment the corresponding SELECT column below.
@@ -32,13 +34,12 @@ Tech-debt notes
         dimensions.py and uncomment the encounter join in fact_condition_src.
 
 Config keys (set in fhir_gold_clinical_mart.pipeline.yml):
-  pipeline.catalog_use              — Unity Catalog catalog
-  pipeline.silver_schema_use        — FHIR schema (where *_gold tables live)
+  pipeline.catalog_use          — Unity Catalog catalog
+  pipeline.silver_schema_use    — FHIR schema (where *_gold tables live)
   pipeline.clinical_mart_schema_use — destination schema (dim_/fact_ tables)
 """
 
 from pyspark import pipelines as dp
-from pyspark.sql.functions import col
 
 
 # ---------------------------------------------------------------------------
@@ -122,13 +123,6 @@ def _dim_patient_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="dim_patient",
-    source="dim_patient_src",
-    keys=["patient_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -152,13 +146,6 @@ def _dim_practitioner_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="dim_practitioner",
-    source="dim_practitioner_src",
-    keys=["practitioner_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -182,13 +169,6 @@ def _dim_organization_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="dim_organization",
-    source="dim_organization_src",
-    keys=["organization_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -212,13 +192,6 @@ def _dim_location_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="dim_location",
-    source="dim_location_src",
-    keys=["location_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ===========================================================================
@@ -312,13 +285,6 @@ def _fact_encounter_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="fact_encounter",
-    source="fact_encounter_src",
-    keys=["encounter_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -366,13 +332,6 @@ def _fact_condition_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="fact_condition",
-    source="fact_condition_src",
-    keys=["condition_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -423,13 +382,6 @@ def _fact_observation_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="fact_observation",
-    source="fact_observation_src",
-    keys=["observation_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -462,13 +414,6 @@ def _fact_procedure_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="fact_procedure",
-    source="fact_procedure_src",
-    keys=["procedure_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -496,13 +441,6 @@ def _fact_medication_request_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="fact_medication_request",
-    source="fact_medication_request_src",
-    keys=["medication_request_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -527,10 +465,3 @@ def _fact_immunization_src():
     """)
 
 
-dp.create_auto_cdc_flow(
-    target="fact_immunization",
-    source="fact_immunization_src",
-    keys=["immunization_natural_key"],
-    sequence_by=col("resource_last_updated"),
-    stored_as_scd_type=1,
-)

@@ -13,6 +13,10 @@ Config keys:
 from pyspark import pipelines as dp
 from pyspark.sql.functions import col
 
+# CDC flows (dp.create_auto_cdc_flow) are co-located here with their
+# dp.create_streaming_table() declarations, following the fhir_gold.py convention.
+# Source temp views are defined in entity_resolution.py.
+
 
 # ---------------------------------------------------------------------------
 # Standard table properties
@@ -83,6 +87,14 @@ dp.create_streaming_table(
     cluster_by=["patient_natural_key", "address_state"],
 )
 
+dp.create_auto_cdc_flow(
+    target="dim_patient",
+    source="dim_patient_src",
+    keys=["patient_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
+)
+
 
 # --- dim_practitioner -----------------------------------------------------
 
@@ -110,6 +122,14 @@ dp.create_streaming_table(
     """,
     table_properties=_MART_TABLE_PROPERTIES,
     cluster_by=["practitioner_natural_key"],
+)
+
+dp.create_auto_cdc_flow(
+    target="dim_practitioner",
+    source="dim_practitioner_src",
+    keys=["practitioner_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
 )
 
 
@@ -141,6 +161,14 @@ dp.create_streaming_table(
     cluster_by=["organization_natural_key"],
 )
 
+dp.create_auto_cdc_flow(
+    target="dim_organization",
+    source="dim_organization_src",
+    keys=["organization_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
+)
+
 
 # --- dim_location ---------------------------------------------------------
 
@@ -168,6 +196,14 @@ dp.create_streaming_table(
     """,
     table_properties=_MART_TABLE_PROPERTIES,
     cluster_by=["location_natural_key"],
+)
+
+dp.create_auto_cdc_flow(
+    target="dim_location",
+    source="dim_location_src",
+    keys=["location_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
 )
 
 
@@ -219,6 +255,14 @@ dp.create_streaming_table(
     cluster_by=["patient_natural_key", "period_start"],
 )
 
+dp.create_auto_cdc_flow(
+    target="fact_encounter",
+    source="fact_encounter_src",
+    keys=["encounter_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
+)
+
 
 # --- fact_condition -------------------------------------------------------
 
@@ -259,6 +303,14 @@ dp.create_streaming_table(
     """,
     table_properties=_MART_TABLE_PROPERTIES,
     cluster_by=["patient_natural_key", "code"],
+)
+
+dp.create_auto_cdc_flow(
+    target="fact_condition",
+    source="fact_condition_src",
+    keys=["condition_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
 )
 
 
@@ -307,6 +359,14 @@ dp.create_streaming_table(
     cluster_by=["patient_natural_key", "code", "effective_datetime"],
 )
 
+dp.create_auto_cdc_flow(
+    target="fact_observation",
+    source="fact_observation_src",
+    keys=["observation_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
+)
+
 
 # --- fact_procedure -------------------------------------------------------
 
@@ -346,6 +406,14 @@ dp.create_streaming_table(
     cluster_by=["patient_natural_key", "code"],
 )
 
+dp.create_auto_cdc_flow(
+    target="fact_procedure",
+    source="fact_procedure_src",
+    keys=["procedure_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
+)
+
 
 # --- fact_medication_request ----------------------------------------------
 
@@ -381,6 +449,14 @@ dp.create_streaming_table(
     cluster_by=["patient_natural_key", "medication_code"],
 )
 
+dp.create_auto_cdc_flow(
+    target="fact_medication_request",
+    source="fact_medication_request_src",
+    keys=["medication_request_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
+)
+
 
 # --- fact_immunization ----------------------------------------------------
 
@@ -408,4 +484,12 @@ dp.create_streaming_table(
     """,
     table_properties=_MART_TABLE_PROPERTIES,
     cluster_by=["patient_natural_key", "vaccine_code"],
+)
+
+dp.create_auto_cdc_flow(
+    target="fact_immunization",
+    source="fact_immunization_src",
+    keys=["immunization_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
 )
