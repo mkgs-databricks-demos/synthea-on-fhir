@@ -14,19 +14,12 @@ FHIR Gold ETL). This layer adds:
   - dim_patient   : age_years, age_band, full_name, primary_identifier_* (SSN/MRN)
   - dim_practitioner: full_name
   - fact_encounter: length_of_stay_hours, is_emergency, is_inpatient;
-                    practitioner/org/location FK join logic present but
-                    commented out (TD-1 — columns not yet in dimensions.py schema)
+                    practitioner/org/location FK resolution via URL joins
   - fact_condition: is_chronic, is_active flags
   - fact_observation: is_abnormal_low/high (NULL-safe CASE)
   - fact_procedure: duration_minutes
 
 Tech-debt notes
-  TD-1  fact_encounter missing practitioner_natural_key, organization_natural_key,
-        location_natural_key — columns omitted from dimensions.py schema; FK
-        resolution is implemented in fact_encounter_src but output columns
-        are commented out pending schema update. URL-only join (no bundle_uuid
-        scoping) is valid for Synthea exports; real-EMR data requires
-        _bundle_uuid on encounter_gold.
   TD-2  fact_observation missing value_raw VARIANT (design doc §8a.6). Add
         `value_raw VARIANT` to dimensions.py fact_observation schema, then
         uncomment the corresponding SELECT column below.
@@ -226,15 +219,12 @@ def _fact_encounter_src():
     Computes length_of_stay_hours, is_emergency, is_inpatient from scalars
     already on encounter_gold.
 
-    TD-1: practitioner_natural_key, organization_natural_key, location_natural_key
-    are resolved below (via references array URL joins to the respective gold
-    tables) but excluded from the SELECT until those columns are added to the
-    fact_encounter schema in dimensions.py. The join logic is preserved and
-    commented out to make the schema addition a 3-line change.
+    Resolves practitioner_natural_key, organization_natural_key, and
+    location_natural_key via URL-based joins to the respective gold tables.
 
     Reference join strategy: URL-only (no bundle_uuid scope). Valid for
     Synthea exports where practitioner/org UUIDs are deterministic across
-    patient bundles. See module docstring for multi-source caveat.
+    patient bundles. For real-EMR data, consider adding bundle_uuid scoping.
     """
     return spark.sql(f"""
         WITH enc AS (
@@ -250,10 +240,21 @@ def _fact_encounter_src():
                 reason_code,
                 reason_display,
                 resource_last_updated,
-                -- Extract reference URLs for dimension FK resolution (TD-1)
-                FILTER(references, r -> r.field = 'participant')[0].url      AS _participant_url,
-                FILTER(references, r -> r.field = 'serviceProvider')[0].url  AS _service_provider_url,
-                FILTER(references, r -> r.field = 'location')[0].url         AS _location_url
+                -- Extract identifier values from FHIR search-format reference URLs.
+                -- Format: "Resource?identifier=system|value" — we need the value after "|".
+                -- Use GET() for NULL-safe array access (returns NULL if filter yields empty).
+                SUBSTRING_INDEX(
+                    GET(FILTER(references, r -> r.field = 'participant.individual'), 0).url,
+                    '|', -1
+                )  AS _prac_identifier,
+                SUBSTRING_INDEX(
+                    GET(FILTER(references, r -> r.field = 'serviceProvider'), 0).url,
+                    '|', -1
+                )  AS _org_identifier,
+                SUBSTRING_INDEX(
+                    GET(FILTER(references, r -> r.field = 'location.location'), 0).url,
+                    '|', -1
+                )  AS _loc_identifier
             FROM {_gold('encounter_gold')}
             WHERE encounter_natural_key IS NOT NULL
               AND patient_natural_key   IS NOT NULL
@@ -261,25 +262,31 @@ def _fact_encounter_src():
         -- Dimension lookups are static reads (no STREAM) to avoid
         -- unsupported stream-stream LEFT OUTER join (no watermark available).
         prac AS (
-            SELECT practitioner_natural_key, practitioner_url
+            -- Practitioner natural_key IS the NPI, which appears as the identifier
+            -- value in the encounter reference URL.
+            SELECT practitioner_natural_key
             FROM   {_static('practitioner_gold')}
         ),
         org  AS (
-            SELECT organization_natural_key, organization_url
+            -- Organization reference URLs contain the Synthea UUID as identifier value.
+            -- This matches identifiers[0].value on organization_gold.
+            SELECT organization_natural_key,
+                   GET(identifiers, 0).value AS _org_ident_val
             FROM   {_static('organization_gold')}
         ),
         loc  AS (
-            SELECT location_natural_key, location_url
+            -- Location reference URLs contain the Synthea UUID as identifier value.
+            -- location_url is stored as "urn:uuid:<uuid>"; strip the prefix to match.
+            SELECT location_natural_key,
+                   REPLACE(location_url, 'urn:uuid:', '') AS _loc_ident_val
             FROM   {_static('location_gold')}
         )
         SELECT
             enc.encounter_natural_key,
             enc.patient_natural_key,
-            -- TD-1: uncomment the three lines below after adding FK columns to
-            -- fact_encounter in dimensions.py:
-            -- prac.practitioner_natural_key,
-            -- org.organization_natural_key,
-            -- loc.location_natural_key,
+            prac.practitioner_natural_key,
+            org.organization_natural_key,
+            loc.location_natural_key,
             enc.encounter_class,
             enc.encounter_type_code,
             enc.encounter_type_display,
@@ -296,10 +303,9 @@ def _fact_encounter_src():
             enc.encounter_class = 'IMP'                                       AS is_inpatient,
             enc.resource_last_updated
         FROM enc
-        -- TD-1: activate joins after adding FK columns to fact_encounter schema:
-        LEFT JOIN prac ON prac.practitioner_url = enc._participant_url
-        LEFT JOIN org  ON org.organization_url  = enc._service_provider_url
-        LEFT JOIN loc  ON loc.location_url      = enc._location_url
+        LEFT JOIN prac ON prac.practitioner_natural_key = enc._prac_identifier
+        LEFT JOIN org  ON org._org_ident_val            = enc._org_identifier
+        LEFT JOIN loc  ON loc._loc_ident_val            = enc._loc_identifier
     """)
 
 
@@ -314,39 +320,57 @@ def _fact_condition_src():
     """Condition fact source.
 
     Derives is_chronic and is_active flags from category and clinical_status.
-
-    TD-3: encounter_natural_key FK resolution is available via the
-    _encounter_ref_url column on condition_gold. To activate:
-      1. Add `encounter_natural_key STRING` to fact_condition in dimensions.py.
-      2. Add the encounter CTE and LEFT JOIN below, uncomment the column.
+    Resolves encounter_natural_key via _encounter_ref_url JOIN to encounter_gold.
     """
     return spark.sql(f"""
+        WITH cond AS (
+            SELECT
+                condition_natural_key,
+                patient_natural_key,
+                _encounter_ref_url,
+                code,
+                code_system,
+                code_display,
+                category,
+                clinical_status,
+                verification_status,
+                onset_datetime,
+                abatement_datetime,
+                resource_last_updated
+            FROM {_gold('condition_gold')}
+            WHERE condition_natural_key IS NOT NULL
+              AND patient_natural_key   IS NOT NULL
+        ),
+        enc AS (
+            -- Static read for encounter FK lookup (same pattern as fact_encounter joins)
+            SELECT encounter_natural_key, encounter_url
+            FROM   {_static('encounter_gold')}
+        )
         SELECT
-            condition_natural_key,
-            patient_natural_key,
-            -- TD-3: add encounter_natural_key here after schema update
-            code,
-            code_system,
-            code_display,
-            category,
-            clinical_status,
-            verification_status,
-            onset_datetime,
-            abatement_datetime,
+            cond.condition_natural_key,
+            cond.patient_natural_key,
+            enc.encounter_natural_key,
+            cond.code,
+            cond.code_system,
+            cond.code_display,
+            cond.category,
+            cond.clinical_status,
+            cond.verification_status,
+            cond.onset_datetime,
+            cond.abatement_datetime,
             -- Chronic: problem list item OR clinically active/recurring
             (
-                category = 'problem-list-item'
-                OR clinical_status IN ('active', 'recurrence', 'relapse')
+                cond.category = 'problem-list-item'
+                OR cond.clinical_status IN ('active', 'recurrence', 'relapse')
             )                                                                AS is_chronic,
             -- Active: any status that is not conclusively resolved
-            clinical_status NOT IN (
+            cond.clinical_status NOT IN (
                 'inactive', 'resolved', 'remission',
                 'entered-in-error', 'refuted'
             )                                                                AS is_active,
-            resource_last_updated
-        FROM {_gold('condition_gold')}
-        WHERE condition_natural_key IS NOT NULL
-          AND patient_natural_key   IS NOT NULL
+            cond.resource_last_updated
+        FROM cond
+        LEFT JOIN enc ON enc.encounter_url = cond._encounter_ref_url
     """)
 
 
@@ -364,9 +388,7 @@ def _fact_observation_src():
     reference ranges. NULL-safe: flags are NULL when value_quantity or the
     relevant range bound is NULL.
 
-    TD-2: value_raw VARIANT (design doc §8a.6) is present on observation_gold
-    but absent from fact_observation in dimensions.py. Add `value_raw VARIANT`
-    to the schema in dimensions.py, then uncomment the SELECT line below.
+    Includes value_raw VARIANT for full FHIR value[x] preservation.
     """
     return spark.sql(f"""
         SELECT
@@ -379,8 +401,7 @@ def _fact_observation_src():
             value_unit,
             value_string,
             value_code,
-            -- TD-2: uncomment after adding value_raw VARIANT to dimensions.py:
-            -- value_raw,
+            value_raw,
             effective_datetime,
             -- Abnormal flags; NULL when value_quantity or bounds are unavailable
             CASE

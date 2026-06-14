@@ -226,6 +226,12 @@ dp.create_streaming_table(
         COMMENT 'Dedup key sha2(patient_nk + class + type_code + period_start). Grain = one real-world visit.',
     `patient_natural_key` STRING NOT NULL
         COMMENT 'FK to dim_patient. The patient who had the encounter.',
+    `practitioner_natural_key` STRING
+        COMMENT 'FK to dim_practitioner. The primary participant/provider for this encounter. Resolved via encounter references.participant URL.',
+    `organization_natural_key` STRING
+        COMMENT 'FK to dim_organization. The service provider organization. Resolved via encounter references.serviceProvider URL.',
+    `location_natural_key` STRING
+        COMMENT 'FK to dim_location. The care delivery site. Resolved via encounter references.location URL.',
     `encounter_class` STRING
         COMMENT 'Visit class: AMB (ambulatory), EMER (emergency), IMP (inpatient), HH (home health), VR (virtual).',
     `encounter_type_code` STRING
@@ -278,6 +284,8 @@ dp.create_streaming_table(
         COMMENT 'Dedup key sha2(patient_nk + code + onset_datetime). Grain = one diagnosis event.',
     `patient_natural_key` STRING NOT NULL
         COMMENT 'FK to dim_patient. The patient with this condition.',
+    `encounter_natural_key` STRING
+        COMMENT 'FK to fact_encounter. The encounter during which this condition was recorded. Resolved via _encounter_ref_url on condition_gold.',
     `code` STRING
         COMMENT 'Condition code (SNOMED or ICD-10). Used for cohort definitions and measure denominators.',
     `code_system` STRING
@@ -342,6 +350,8 @@ dp.create_streaming_table(
         COMMENT 'String result (e.g., survey free-text, qualitative results like "positive").',
     `value_code` STRING
         COMMENT 'Coded result value (e.g., blood type A/B/AB/O, pos/neg).',
+    `value_raw` VARIANT
+        COMMENT 'Complete FHIR value[x] as VARIANT. Preserves full structure for complex value types (CodeableConcept, Quantity with comparator, etc.).',
     `effective_datetime` TIMESTAMP
         COMMENT 'When the observation was taken. Primary time dimension for lab/vital trending.',
     `is_abnormal_low` BOOLEAN

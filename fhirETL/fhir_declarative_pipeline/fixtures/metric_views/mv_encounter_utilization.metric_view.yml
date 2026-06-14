@@ -4,8 +4,12 @@ joins:
   - name: patient
     source: "{catalog}.{clinical_mart_schema}.dim_patient"
     "on": source.patient_natural_key = patient.patient_natural_key
-# NOTE: organization and location joins deferred until TD-1 activates
-# organization_natural_key and location_natural_key FK columns on fact_encounter.
+  - name: organization
+    source: "{catalog}.{clinical_mart_schema}.dim_organization"
+    "on": source.organization_natural_key = organization.organization_natural_key
+  - name: location
+    source: "{catalog}.{clinical_mart_schema}.dim_location"
+    "on": source.location_natural_key = location.location_natural_key
 comment: "Encounter utilization metrics for clinical operations analysis. Covers visit volume, length of stay, and emergency/inpatient stratification."
 dimensions:
   - name: encounter_month
@@ -74,6 +78,35 @@ dimensions:
     synonyms:
       - state
       - geography
+  - name: organization_name
+    expr: organization.name
+    comment: Service provider organization name
+    display_name: Organization
+    synonyms:
+      - provider org
+      - facility
+      - service provider
+  - name: organization_state
+    expr: organization.address_state
+    comment: Organization state
+    display_name: Organization State
+    synonyms:
+      - org state
+      - facility state
+  - name: location_name
+    expr: location.name
+    comment: Care delivery site name
+    display_name: Location
+    synonyms:
+      - site
+      - care site
+      - facility location
+  - name: location_state
+    expr: location.address_state
+    comment: Location state
+    display_name: Location State
+    synonyms:
+      - site state
 measures:
   - name: total_encounters
     expr: COUNT(encounter_natural_key)
@@ -162,3 +195,27 @@ measures:
     synonyms:
       - admission rate
       - inpatient proportion
+  - name: unique_organizations
+    expr: COUNT(DISTINCT organization_natural_key)
+    comment: Number of distinct provider organizations
+    display_name: Unique Organizations
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - org count
+      - facility count
+  - name: unique_locations
+    expr: COUNT(DISTINCT location_natural_key)
+    comment: Number of distinct care delivery sites
+    display_name: Unique Locations
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - site count
+      - location count
