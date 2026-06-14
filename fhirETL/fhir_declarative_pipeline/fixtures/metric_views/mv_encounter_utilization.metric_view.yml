@@ -4,12 +4,18 @@ joins:
   - name: patient
     source: "{catalog}.{clinical_mart_schema}.dim_patient"
     "on": source.patient_natural_key = patient.patient_natural_key
+    rely:
+      at_most_one_match: true
   - name: organization
     source: "{catalog}.{clinical_mart_schema}.dim_organization"
     "on": source.organization_natural_key = organization.organization_natural_key
+    rely:
+      at_most_one_match: true
   - name: location
     source: "{catalog}.{clinical_mart_schema}.dim_location"
     "on": source.location_natural_key = location.location_natural_key
+    rely:
+      at_most_one_match: true
 comment: "Encounter utilization metrics for clinical operations analysis. Covers visit volume, length of stay, and emergency/inpatient stratification."
 dimensions:
   - name: encounter_month
