@@ -504,3 +504,71 @@ def _fact_immunization_src():
     """)
 
 
+
+
+# ---------------------------------------------------------------------------
+# fact_claim
+# ---------------------------------------------------------------------------
+
+@dp.temporary_view(name="fact_claim_src")
+def _fact_claim_src():
+    """Claim fact source.
+
+    Resolves organization_natural_key from _provider_ref_url (Organization
+    identifier) and location_natural_key from references.facility (Location
+    identifier). Both use the same Synthea identifier extraction pattern as
+    fact_encounter.
+    """
+    return spark.sql(f"""
+        WITH claim AS (
+            SELECT
+                claim_natural_key,
+                patient_natural_key,
+                claim_type_code,
+                claim_type_display,
+                status,
+                claim_use,
+                billable_period_start,
+                billable_period_end,
+                total_value,
+                total_currency,
+                resource_last_updated,
+                -- Extract Synthea UUID from provider org reference
+                SUBSTRING_INDEX(_provider_ref_url, '|', -1)                   AS _org_identifier,
+                -- Extract Synthea UUID from facility location reference
+                SUBSTRING_INDEX(
+                    GET(FILTER(references, r -> r.field = 'facility'), 0).url,
+                    '|', -1
+                )                                                             AS _loc_identifier
+            FROM {_gold('claim_gold')}
+            WHERE claim_natural_key  IS NOT NULL
+              AND patient_natural_key IS NOT NULL
+        ),
+        org AS (
+            SELECT organization_natural_key, GET(identifiers, 0).value AS _org_ident_val
+            FROM   {_static('organization_gold')}
+        ),
+        loc AS (
+            SELECT location_natural_key, REPLACE(location_url, 'urn:uuid:', '') AS _loc_ident_val
+            FROM   {_static('location_gold')}
+        )
+        SELECT
+            claim.claim_natural_key,
+            claim.patient_natural_key,
+            org.organization_natural_key,
+            loc.location_natural_key,
+            claim.claim_type_code,
+            claim.claim_type_display,
+            claim.status,
+            claim.claim_use,
+            claim.billable_period_start,
+            claim.billable_period_end,
+            claim.total_value,
+            claim.total_currency,
+            claim.resource_last_updated
+        FROM claim
+        LEFT JOIN org ON org._org_ident_val = claim._org_identifier
+        LEFT JOIN loc ON loc._loc_ident_val = claim._loc_identifier
+    """)
+
+

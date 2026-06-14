@@ -503,3 +503,53 @@ dp.create_auto_cdc_flow(
     sequence_by=col("resource_last_updated"),
     stored_as_scd_type=1,
 )
+
+
+# --- fact_claim ---------------------------------------------------------------
+
+dp.create_streaming_table(
+    name="fact_claim",
+    comment=(
+        "Claim fact — one row per unique insurance claim submission. "
+        "Grain: one claim per patient per billable period. "
+        "Consumer: cost analysis, utilization-based quality measures, payer mix, claims adjudication."
+    ),
+    schema="""
+    `claim_natural_key` STRING NOT NULL
+        COMMENT 'Dedup key (Auto CDC primary key). Grain = one claim submission.',
+    `patient_natural_key` STRING NOT NULL
+        COMMENT 'FK to dim_patient. The patient this claim is for.',
+    `organization_natural_key` STRING
+        COMMENT 'FK to dim_organization. The billing provider organization. Resolved via _provider_ref_url identifier extraction.',
+    `location_natural_key` STRING
+        COMMENT 'FK to dim_location. The facility where services were rendered. Resolved via references.facility URL.',
+    `claim_type_code` STRING
+        COMMENT 'Claim type: institutional, pharmacy, professional.',
+    `claim_type_display` STRING
+        COMMENT 'Human-readable claim type.',
+    `status` STRING
+        COMMENT 'Claim status: active, cancelled, draft, entered-in-error.',
+    `claim_use` STRING
+        COMMENT 'Claim use: claim (payment request), preauthorization, predetermination.',
+    `billable_period_start` TIMESTAMP
+        COMMENT 'Start of the service/billing period. Primary time dimension for claims trending.',
+    `billable_period_end` TIMESTAMP
+        COMMENT 'End of the service/billing period.',
+    `total_value` DOUBLE
+        COMMENT 'Total claimed amount in currency units (typically USD).',
+    `total_currency` STRING
+        COMMENT 'Currency code (typically USD).',
+    `resource_last_updated` TIMESTAMP NOT NULL
+        COMMENT 'Timestamp of most recent source update.'
+    """,
+    table_properties=_MART_TABLE_PROPERTIES,
+    cluster_by=["patient_natural_key", "claim_type_code", "billable_period_start"],
+)
+
+dp.create_auto_cdc_flow(
+    target="fact_claim",
+    source="fact_claim_src",
+    keys=["claim_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
+)
