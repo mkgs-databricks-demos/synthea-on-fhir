@@ -54,8 +54,15 @@ except Exception:
 
 
 def _gold(table: str) -> str:
-    """Fully-qualified STREAM reference to a gold table in the FHIR schema."""
-    return f"STREAM({_catalog}.{_schema}.{table})"
+    """Fully-qualified STREAM reference to a gold table in the FHIR schema.
+
+    Uses SKIPCHANGECOMMITS because the upstream gold tables are maintained
+    by Auto CDC (MERGE operations), which produce non-append commits.
+    Without this option the clinical mart pipeline fails with
+    DELTA_SOURCE_TABLE_IGNORE_CHANGES on any incremental run after
+    the gold ETL performs upserts.
+    """
+    return f"STREAM `{_catalog}`.`{_schema}`.`{table}` WITH (SKIPCHANGECOMMITS)"
 
 
 def _static(table: str) -> str:

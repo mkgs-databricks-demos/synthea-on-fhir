@@ -215,7 +215,7 @@ Problems solved:
 
 **New architecture (CURRENT):**
 
-    fhir_resources_variant (one row per resource, full VARIANT)
+    fhir_resources (one row per resource, full VARIANT)
       -> {type}_extract (temporary view: streaming filter + VARIANT path extraction + CAST)
       -> {type} (Auto CDC Type 1, sequenced by ingest_time)
 
@@ -228,26 +228,26 @@ Key properties:
 - No dependency on Enzyme incrementalization behavior
 - Simpler architecture: 2 objects per type (was 3)
 
-### fhir_resources_variant as universal staging layer
+### fhir_resources as universal staging layer
 
-`fhir_resources_variant` stores one row per FHIR resource with the complete resource
+`fhir_resources` (actual table name in code) stores one row per FHIR resource with the complete resource
 document preserved as VARIANT. It serves three downstream purposes:
 
 1. **Silver analytics** -- streaming filter by resourceType + VARIANT path extraction
 2. **FHIR server loading** -- NDJSON export for HAPI `$import`, or direct VARIANT->JSONB
    for Aidbox on Databricks Lakebase
-3. **Ad-hoc queries** -- `SELECT resource:fieldName FROM fhir_resources_variant WHERE ...`
+3. **Ad-hoc queries** -- `SELECT resource:fieldName FROM fhir_resources WHERE ...`
 
 This aligns with how FHIR servers store data (HAPI JPA: resource as CLOB/blob;
 Aidbox: resource as JSONB column). The document-per-row model is the natural
 staging format for both analytical and transactional FHIR workloads.
 
-### fhir_resources retained for schema discovery only
+### fhir_resource_keys retained for schema discovery only
 
-`fhir_resources` (key-value EAV, 2.1B rows) is retained because
+`fhir_resource_keys` (key-value EAV, 2.1B rows) is retained because
 `fhir_resource_schemas` depends on it (`schema_of_variant_agg(value) GROUP BY
 resourceType, key`). It is NOT in the streaming path for silver tables.
-Future consideration: derive schemas directly from `fhir_resources_variant`
+Future consideration: derive schemas directly from `fhir_resources`
 using `schema_of_variant(resource)` to eliminate the EAV table entirely.
 
 Note: `num_output_rows` is NULL for all Auto CDC flows -- expected and documented behavior.
@@ -274,7 +274,7 @@ v3 (reference extraction + VARIANT), a full refresh is needed. Row counts should
 remain the same (one row per resource per type), but the schema changes to:
 `{type}_uuid PK, bundle_uuid, {type}_url, references ARRAY<STRUCT<...>>, resource VARIANT`
 
-Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resources.
+Source: 132,313 FHIR bundles, 2,111,798,474 rows in fhir_resource_keys.
 
 | Table | Rows |
 |---|---|
@@ -371,27 +371,24 @@ This is expected FHIR semantics — not an extraction gap.
 
 - **fact_claim not implemented**: `claim_gold` exists in FHIR schema with full column set. To implement: add `dp.create_streaming_table()` + `dp.create_auto_cdc_flow()` to `dimensions.py`; add `fact_claim_src` temp view to `entity_resolution.py`.
 
-- **register_metric_views not yet run**: YAML fixtures in `fixtures/metric_views/` define UC metric views for `mv_patient_demographics`, `mv_encounter_utilization`, `mv_clinical_events`. Notebook `src/fhir_gold_clinical_mart/register_metric_views.ipynb` (asset: 2240851736366200) must be executed to create these in `dev_matthew_giglia_clinical_mart`.
+- ~~**register_metric_views not yet run**~~: DONE. All 3 metric views registered in
+  `dev_matthew_giglia_clinical_mart` (21/21 measures validated). YAML fixtures corrected
+  to align with actual SCD1 schema (removed valid_to, fixed column names).
 
 - **File arrival trigger broken on fhir_etl_orchestration_job**: missing
   `s3:GetBucketNotification` / `s3:PutBucketNotification` on IAM role
   `ncqai-ext-role-049629455384-hag0lv` for bucket `ncqai-ext-s3-049629455384-hag0lv`.
   Needs metastore admin. Landing volume is UC MANAGED -- no named external location.
 
-- **Orphaned event log table**: `ncqai.dev_matthew_giglia_fhir.fhir_declarative_pipeline_etl_event_log`
-  no longer written to. Safe to drop.
+- ~~**Orphaned event log table**~~: DROPPED. `fhir_declarative_pipeline_etl_event_log` no longer exists.
 
-- **Orphaned `_raw` tables (24)**: The previous silver architecture published 24
-  `{type}_raw` tables to the schema. These are no longer produced by the new pipeline.
-  After successful full refresh of the new silver pipeline, drop all `*_raw` tables
-  from `ncqai.dev_matthew_giglia_fhir`.
+- ~~**Orphaned `_raw` tables (24)**~~: DROPPED. All `*_raw` tables removed from `ncqai.dev_matthew_giglia_fhir`.
 
-- **synthetic_fhir_etl_orchestration_job missing permissions block**: omitted
-  from `synthetic_fhir_etl_orchestration.job.yml` during write. Add manually
-  to match the other job files.
+- ~~**synthetic_fhir_etl_orchestration_job missing permissions block**~~: RESOLVED.
+  Permissions block already present in `synthetic_fhir_etl_orchestration.job.yml`.
 
-- **mkgs-prod service principal**: applicationId `47c0365e-b1af-429c-b56d-07cfb18b5dc7`
-  needs `CAN_EDIT` added to `hedis.permissions` block manually.
+- ~~**mkgs-prod service principal**~~: RESOLVED. Added `CAN_MANAGE` to `hedis.permissions`
+  in `databricks.yml` (applicationId `47c0365e-b1af-429c-b56d-07cfb18b5dc7`).
 
 - ~~**Silver incremental runs fail with DELTA_SOURCE_TABLE_IGNORE_CHANGES**~~:
   RESOLVED. The fully-streaming rewrite eliminates PIVOT, Complete output mode,
@@ -403,7 +400,7 @@ This is expected FHIR semantics — not an extraction gap.
   upserts). Previously this caused errors in the v1/v2 architecture.
 
 - **Deploy + full refresh required**: After deploying the new silver pipeline:
-  1. Full refresh ingestion pipeline (to populate `fhir_resources_variant`)
+  1. Full refresh ingestion pipeline (to populate `fhir_resources`)
   2. Full refresh silver pipeline (to rebuild all 24 resource tables from new source)
   3. Drop orphaned `_raw` tables after verifying silver tables are correct
 
@@ -412,7 +409,7 @@ This is expected FHIR semantics — not an extraction gap.
   and silver tables without manual full refresh.
 
 - **Lakebase/HAPI loading job (FUTURE)**: Design a downstream job that exports
-  `fhir_resources_variant` as NDJSON for HAPI `$import`, or writes VARIANT->JSONB
+  `fhir_resources` as NDJSON for HAPI `$import`, or writes VARIANT->JSONB
   directly to Aidbox on Databricks Lakebase. Architecture validated via research
   (HAPI stores resources as document blobs; Aidbox uses JSONB per row).
 

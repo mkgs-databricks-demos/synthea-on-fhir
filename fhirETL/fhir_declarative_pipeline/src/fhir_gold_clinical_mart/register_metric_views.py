@@ -4,6 +4,9 @@
 # environment_version = "5"
 # ///
 # DBTITLE 1,Retrieve widget values
+dbutils.widgets.text("catalog_use", "ncqai")
+dbutils.widgets.text("clinical_mart_schema_use", "clinical_mart")
+
 catalog_use = dbutils.widgets.get("catalog_use")
 clinical_mart_schema_use = dbutils.widgets.get("clinical_mart_schema_use")
 
@@ -91,3 +94,41 @@ print(f"  Failed:  {sum(1 for _, s in results if s != 'SUCCESS')}")
 # MAGIC -- Verify the metric views exist in the clinical mart schema
 # MAGIC SHOW VIEWS IN IDENTIFIER(:catalog_use || '.' || :clinical_mart_schema_use)
 # MAGIC   LIKE 'mv_*';
+
+# COMMAND ----------
+
+# DBTITLE 1,Validate metric views with MEASURE() queries
+import yaml
+
+validation_results = []
+
+for yml_file in yml_files:
+    view_name = yml_file.stem.replace(".metric_view", "")
+    full_view_name = f"{catalog_use}.{clinical_mart_schema_use}.{view_name}"
+
+    with open(yml_file, "r") as f:
+        spec = yaml.safe_load(f)
+
+    measures = [m["name"] for m in spec.get("measures", [])]
+    if not measures:
+        validation_results.append((view_name, "SKIPPED", "No measures defined"))
+        continue
+
+    measure_cols = ", ".join(f"MEASURE(`{m}`) AS `{m}`" for m in measures)
+    query = f"SELECT {measure_cols} FROM `{catalog_use}`.`{clinical_mart_schema_use}`.`{view_name}`"
+
+    try:
+        row = spark.sql(query).first()
+        non_null = sum(1 for m in measures if row[m] is not None)
+        validation_results.append((view_name, "PASS", f"{non_null}/{len(measures)} measures returned non-null values"))
+    except Exception as e:
+        validation_results.append((view_name, "FAIL", str(e)[:120]))
+
+# Summary
+print(f"{'View':<35} {'Status':<8} {'Detail'}")
+print("-" * 90)
+for name, status, detail in validation_results:
+    print(f"{name:<35} {status:<8} {detail}")
+
+failed = [r for r in validation_results if r[1] == "FAIL"]
+assert not failed, f"{len(failed)} metric view(s) failed validation"

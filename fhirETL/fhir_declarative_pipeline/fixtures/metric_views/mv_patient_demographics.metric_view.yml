@@ -1,7 +1,6 @@
 version: 1.1
 source: "{catalog}.{clinical_mart_schema}.dim_patient"
-filter: valid_to IS NULL
-comment: "Patient population demographics for the current (is_current) patient roster. Supports population health analysis, care gap identification, and demographic stratification."
+comment: "Patient population demographics for the current patient roster. Supports population health analysis, care gap identification, and demographic stratification."
 dimensions:
   - name: gender
     expr: gender
@@ -55,8 +54,8 @@ dimensions:
       - living status
 measures:
   - name: total_patients
-    expr: COUNT(patient_key)
-    comment: Total number of current patients in the population
+    expr: COUNT(patient_natural_key)
+    comment: Total number of patients in the population
     display_name: Total Patients
     format:
       type: number
@@ -69,7 +68,7 @@ measures:
       - population size
       - roster size
   - name: living_patients
-    expr: COUNT(patient_key) FILTER (WHERE deceased = false OR deceased IS NULL)
+    expr: COUNT(patient_natural_key) FILTER (WHERE deceased = false OR deceased IS NULL)
     comment: Number of currently living patients
     display_name: Living Patients
     format:
@@ -82,7 +81,7 @@ measures:
       - active patients
       - alive patients
   - name: deceased_patients
-    expr: COUNT(patient_key) FILTER (WHERE deceased = true)
+    expr: COUNT(patient_natural_key) FILTER (WHERE deceased = true)
     comment: Number of deceased patients
     display_name: Deceased Patients
     format:

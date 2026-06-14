@@ -3,14 +3,10 @@ source: "{catalog}.{clinical_mart_schema}.fact_encounter"
 joins:
   - name: patient
     source: "{catalog}.{clinical_mart_schema}.dim_patient"
-    "on": source.patient_natural_key = patient.patient_natural_key AND patient.valid_to IS NULL
-  - name: organization
-    source: "{catalog}.{clinical_mart_schema}.dim_organization"
-    "on": source.organization_natural_key = organization.organization_natural_key AND organization.valid_to IS NULL
-  - name: location
-    source: "{catalog}.{clinical_mart_schema}.dim_location"
-    "on": source.location_natural_key = location.location_natural_key AND location.valid_to IS NULL
-comment: "Encounter utilization metrics for clinical operations analysis. Covers visit volume, length of stay, and provider capacity across organizations and locations."
+    "on": source.patient_natural_key = patient.patient_natural_key
+# NOTE: organization and location joins deferred until TD-1 activates
+# organization_natural_key and location_natural_key FK columns on fact_encounter.
+comment: "Encounter utilization metrics for clinical operations analysis. Covers visit volume, length of stay, and emergency/inpatient stratification."
 dimensions:
   - name: encounter_month
     expr: "DATE_TRUNC('MONTH', period_start)"
@@ -78,24 +74,9 @@ dimensions:
     synonyms:
       - state
       - geography
-  - name: organization_name
-    expr: organization.organization_name
-    comment: Name of the healthcare organization
-    display_name: Organization
-    synonyms:
-      - hospital
-      - facility
-      - provider org
-  - name: location_name
-    expr: location.location_name
-    comment: Name of the care delivery location
-    display_name: Location
-    synonyms:
-      - facility name
-      - site
 measures:
   - name: total_encounters
-    expr: COUNT(encounter_key)
+    expr: COUNT(encounter_natural_key)
     comment: Total number of encounters
     display_name: Total Encounters
     format:
@@ -134,7 +115,7 @@ measures:
       - average LOS
       - mean stay duration
   - name: inpatient_encounters
-    expr: COUNT(encounter_key) FILTER (WHERE encounter_class = 'inpatient')
+    expr: COUNT(encounter_natural_key) FILTER (WHERE encounter_class = 'inpatient')
     comment: Count of inpatient encounters only
     display_name: Inpatient Encounters
     format:
@@ -146,7 +127,7 @@ measures:
       - inpatient visits
       - admissions
   - name: emergency_encounters
-    expr: COUNT(encounter_key) FILTER (WHERE encounter_class = 'emergency')
+    expr: COUNT(encounter_natural_key) FILTER (WHERE encounter_class = 'emergency')
     comment: Count of emergency department encounters
     display_name: ED Encounters
     format:
