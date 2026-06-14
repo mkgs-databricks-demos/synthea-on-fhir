@@ -2,7 +2,7 @@
 
 Canonical long-term memory for the FHIR Declarative Pipeline bundle.
 Read this at the start of every session before making changes.
-Last updated: 2026-06-13 (PR #24 merged — clinical mart on main; 10 tables live, integrity verified)
+Last updated: 2026-06-14 (TD-1/2/3 resolved + fact_claim + mv_claims; branch mg-td1-encounter-fk-columns ready for PR)
 
 ---
 
@@ -116,12 +116,12 @@ Last updated: 2026-06-13 (PR #24 merged — clinical mart on main; 10 tables liv
 - Config: `pipeline.catalog_use`, `pipeline.schema_use`, `pipeline.bundle_files_path`
 - Pipeline ID: `74842515-face-4150-a800-c2ea2a3400ac`
 
-### 5. fhir_gold_clinical_mart (dimensional model — LIVE, 10 TABLES)
+### 5. fhir_gold_clinical_mart (dimensional model — LIVE, 11 TABLES)
 - Reads FROM `_gold` tables in `ncqai.dev_matthew_giglia_fhir`; writes dim/fact tables to `ncqai.dev_matthew_giglia_clinical_mart`
 - Schema managed by `${resources.schemas.clinical_mart_schema.name}`; pipeline ID: `ad8a1df0-87ab-4142-bfbb-4ccb467adaec`
 - **Two transformation files**:
-  - `entity_resolution.py` — 10 `@dp.temporary_view` functions. Reads gold via `_gold()` (STREAM) or `_static()` (snapshot). Computed columns: `full_name`, `age_years`, `age_band` (dim_patient); `length_of_stay_hours`, `is_emergency`, `is_inpatient` (fact_encounter); `is_chronic`, `is_active` (fact_condition); `is_abnormal_low`, `is_abnormal_high` (fact_observation); `duration_minutes` (fact_procedure).
-  - `dimensions.py` — all 10 `dp.create_streaming_table()` declarations + co-located `dp.create_auto_cdc_flow()` calls (SCD1). **CDC flows MUST be in the same file as their streaming table declarations — SDP requirement.**
+  - `entity_resolution.py` — 11 `@dp.temporary_view` functions. Reads gold via `_gold()` (STREAM) or `_static()` (snapshot). Computed columns: `full_name`, `age_years`, `age_band` (dim_patient); `length_of_stay_hours`, `is_emergency`, `is_inpatient` + practitioner/org/location FK resolution (fact_encounter); `encounter_natural_key` FK resolution (fact_condition); `is_chronic`, `is_active` (fact_condition); `is_abnormal_low`, `is_abnormal_high`, `value_raw` (fact_observation); `duration_minutes` (fact_procedure); org/location FK resolution (fact_claim).
+  - `dimensions.py` — all 11 `dp.create_streaming_table()` declarations + co-located `dp.create_auto_cdc_flow()` calls (SCD1). **CDC flows MUST be in the same file as their streaming table declarations — SDP requirement.**
 - Config keys: `pipeline.catalog_use` (→ ncqai), `pipeline.silver_schema_use` (→ dev_matthew_giglia_fhir), `pipeline.clinical_mart_schema_use` (→ dev_matthew_giglia_clinical_mart)
 - **Critical SDP rule**: `dp.create_auto_cdc_flow()` and its target `dp.create_streaming_table()` must be in the **same Python file**. Splitting across files causes `DLTAnalysisException: No query found for dataset`.
 - **Critical streaming rule**: Dimension lookup CTEs in fact temp views must use `_static()` (no `STREAM`). Stream-stream LEFT OUTER joins are not supported without watermarks. Only the primary fact source CTE uses `_gold()` / `STREAM`.
@@ -129,7 +129,7 @@ Last updated: 2026-06-13 (PR #24 merged — clinical mart on main; 10 tables liv
   - `_gold(table)` → `STREAM({catalog}.{schema}.{table})` — streaming fact source
   - `_static(table)` → `{catalog}.{schema}.{table}` — dimension snapshot lookup
 - Metric views: registered by `src/fhir_gold_clinical_mart/register_metric_views.ipynb` (NOT yet run)
-- **Tech debt** (see Known Issues): TD-1 fact_encounter FK cols, TD-2 fact_observation value_raw, TD-3 fact_condition encounter FK, fact_claim not yet implemented
+- **Tech debt**: All resolved (TD-1/2/3 + fact_claim). See Known Issues for history.
 
 ### Dual-Gold Architecture
 
@@ -333,47 +333,58 @@ Data quality:
 
 ---
 
-## Clinical Mart Table State (as of 2026-06-13, dev target — FIRST CLEAN FULL REFRESH)
+## Clinical Mart Table State (as of 2026-06-14, dev target — POST TD-1/2/3 + fact_claim)
 
 Pipeline: `fhir_gold_clinical_mart` (ID: `ad8a1df0-87ab-4142-bfbb-4ccb467adaec`)
-Full refresh run: `f160a6e6-f63f-4d9d-ace9-0c59b15149b0` — COMPLETED (all 10 flows, 0 errors)
+Latest incremental (2026-06-14): all 11 flows COMPLETED, 0 errors.
 
-| Table | Rows | Gold Source |
+| Table | Rows | FK columns added (session) |
 |---|---|---|
-| dim_patient | 124,565 | patient_gold |
-| dim_practitioner | 1,240 | practitioner_gold |
-| dim_organization | 1,126 | organization_gold |
-| dim_location | 1,141 | location_gold |
-| fact_encounter | 7,994,774 | encounter_gold |
-| fact_condition | 4,939,762 | condition_gold |
-| fact_observation | 70,599,707 | observation_gold |
-| fact_procedure | 22,196,616 | procedure_gold |
-| fact_medication_request | 6,522,549 | medication_request_gold |
-| fact_immunization | 1,948,242 | immunization_gold |
+| dim_patient | 124,565 | — |
+| dim_practitioner | 1,240 | — |
+| dim_organization | 1,126 | — |
+| dim_location | 1,141 | — |
+| fact_encounter | 8,111,035 | practitioner_natural_key (100%), organization_natural_key (89.2%), location_natural_key (87.6%) |
+| fact_condition | 5,013,809 | encounter_natural_key (100%) |
+| fact_observation | 71,555,435 | value_raw VARIANT (0% — upstream not populating yet) |
+| fact_procedure | 22,520,875 | — |
+| fact_medication_request | 6,606,711 | — |
+| fact_immunization | 1,978,187 | — |
+| fact_claim | 14,031,564 | organization_natural_key (89.9%), location_natural_key (50.7%) |
+| **TOTAL** | **~130M** | |
 
-Integrity: 0 null PKs, 0 duplicate PKs, 0 orphan FKs across all tables.
-All fact row counts match gold source 1:1.
+All FK columns have 100% referential integrity (no orphan keys).
+Pharmacy claims (5.9M) correctly have NULL location — no facility reference in FHIR spec.
 
-Observation no-value cohort: 3,332,827 rows (4.7%) with null `value_quantity/string/code`.
-Root cause: 100% are multi-component panel headers (`component[]` array present, no top-level `value[x]`).
-Dominant codes: `85354-9` blood pressure panel (1.95M), `93025-5` PRAPARE panel (1.35M).
-This is expected FHIR semantics — not an extraction gap.
+Observation no-value cohort: ~3.3M rows (4.7%) with null `value_quantity/string/code`.
+Root cause: multi-component panel headers (`component[]` array, no top-level `value[x]`).
+Expected FHIR semantics — not an extraction gap.
 
 ---
 
 ## Known Issues / TODOs
 
-- **TD-1: fact_encounter missing practitioner/org/location FK columns**: JOIN logic written in `entity_resolution.py` but columns commented out pending schema update. To activate: add `practitioner_natural_key STRING`, `organization_natural_key STRING`, `location_natural_key STRING` to `fact_encounter` schema in `dimensions.py`, then uncomment the three SELECT columns in `fact_encounter_src`.
+- ~~**TD-1: fact_encounter FK columns**~~: RESOLVED (2026-06-14). practitioner_natural_key,
+  organization_natural_key, location_natural_key added. Identifier extraction from FHIR
+  search-format URLs (NPI for practitioner, Synthea UUID for org/location). Coverage:
+  practitioner 100%, org 89.2%, location 87.6%. All 100% FK integrity.
 
-- **TD-2: fact_observation missing value_raw VARIANT**: `value_raw` exists on `observation_gold`. To activate: add `value_raw VARIANT` to `fact_observation` schema in `dimensions.py`, then uncomment `value_raw,` in `fact_observation_src`.
+- ~~**TD-2: fact_observation value_raw VARIANT**~~: RESOLVED (2026-06-14). Column added to
+  schema and SELECT. Currently all-NULL upstream (observation_gold not populating it yet);
+  schema is ready for when gold ETL activates value_raw extraction.
 
-- **TD-3: fact_condition missing encounter_natural_key FK**: `_encounter_ref_url` + `_bundle_uuid` on `condition_gold` available for resolution. To activate: add `encounter_natural_key STRING` to `fact_condition` schema in `dimensions.py`, add encounter CTE and LEFT JOIN to `fact_condition_src` in `entity_resolution.py`.
+- ~~**TD-3: fact_condition encounter_natural_key FK**~~: RESOLVED (2026-06-14). JOIN via
+  `encounter_url = _encounter_ref_url` (direct urn:uuid match). 100% resolution rate,
+  100% FK integrity to fact_encounter.
 
-- **fact_claim not implemented**: `claim_gold` exists in FHIR schema with full column set. To implement: add `dp.create_streaming_table()` + `dp.create_auto_cdc_flow()` to `dimensions.py`; add `fact_claim_src` temp view to `entity_resolution.py`.
+- ~~**fact_claim not implemented**~~: RESOLVED (2026-06-14). 14M claims loaded
+  (professional 7.6M, pharmacy 5.9M, institutional 546K). Org FK 89.9%, location FK
+  50.7% (pharmacy claims have no facility — expected). 100% FK integrity on both.
 
-- ~~**register_metric_views not yet run**~~: DONE. All 3 metric views registered in
-  `dev_matthew_giglia_clinical_mart` (21/21 measures validated). YAML fixtures corrected
-  to align with actual SCD1 schema (removed valid_to, fixed column names).
+- ~~**register_metric_views not yet run**~~: DONE. All 4 metric views registered in
+  `dev_matthew_giglia_clinical_mart` (35/35 measures validated). YAML fixtures corrected
+  to align with actual SCD1 schema. mv_encounter_utilization updated with org/location
+  joins + rely hints. mv_claims added (9 dims, 11 measures).
 
 - **File arrival trigger broken on fhir_etl_orchestration_job**: missing
   `s3:GetBucketNotification` / `s3:PutBucketNotification` on IAM role
@@ -445,7 +456,7 @@ This is expected FHIR semantics — not an extraction gap.
 | `fixtures/clinical_mart_integrity_check.py` | Post-load validation notebook (row counts, null/dupe PKs, orphan FKs, gold alignment, DQ checks, no-value diagnosis) |
 | `fixtures/architecture/gold_scd_layer_design.md` | Clinical mart design doc (dual-gold architecture, SCD2 dims, fact tables) |
 | `fixtures/architecture/fhir_gold_scd1_design.md` | FHIR Gold table schema design (SCD1, entity resolution, API serving) |
-| `fixtures/metric_views/*.metric_view.yml` | UC Metric View YAML definitions (encounter utilization, clinical events, patient demographics) |
+| `fixtures/metric_views/*.metric_view.yml` | UC Metric View YAML definitions (encounter utilization, clinical events, patient demographics, claims) |
 | `resources/fhir_gold_etl.pipeline.yml` | FHIR Gold Entity Resolution pipeline config |
 | `resources/fhir_gold_clinical_mart.pipeline.yml` | Clinical Mart pipeline config |
 | `resources/fhir_bundle_mover.job.yml` | FHIR Bundle Mover job |
