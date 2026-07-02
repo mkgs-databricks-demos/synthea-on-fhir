@@ -2,7 +2,7 @@
 
 Canonical long-term memory for the FHIR Declarative Pipeline bundle.
 Read this at the start of every session before making changes.
-Last updated: 2026-06-14 (TD-1/2/3 resolved + fact_claim + mv_claims; branch mg-td1-encounter-fk-columns ready for PR)
+Last updated: 2026-07-02 (PR #27 merged; schema evolution test PASSED — Goal resource auto-discovered end-to-end)
 
 ---
 
@@ -191,8 +191,9 @@ Schema resources:
     delta.feature.variantType-preview:   supported
     pipelines.reset.allowed:             true
 
-Applied to all bronze tables (including `fhir_resources`) and all 24 silver
-CDC target tables. Verified correct as of 2026-06-11.
+Applied to all bronze tables (including `fhir_resources`) and all silver
+CDC target tables (25 as of 2026-07-02, after Goal auto-discovered via
+schema evolution). Verified correct as of 2026-06-11.
 
 ### Fully streaming silver architecture (PIVOT eliminated)
 
@@ -415,9 +416,12 @@ Expected FHIR semantics — not an extraction gap.
   2. Full refresh silver pipeline (to rebuild all 24 resource tables from new source)
   3. Drop orphaned `_raw` tables after verifying silver tables are correct
 
-- **Schema evolution test**: not yet performed. Plan: run incremental update after
-  adding new synthea population; verify new columns appear in `fhir_resource_schemas`
-  and silver tables without manual full refresh.
+- ~~**Schema evolution test**~~: PASSED (2026-07-02). Injected a `Goal` resource
+  (new type, not in existing 27). Ingestion auto-inferred 13-field schema in
+  `fhir_resource_schemas` (27 → 28 types). Silver pipeline auto-created `goal`
+  streaming table with uniform 10-column schema. No code changes, no YAML, no
+  full refresh. Existing tables unaffected. Full results in
+  `fixtures/sessions/2026-07-02_schema-evolution-test.md`.
 
 - **Lakebase/HAPI loading job (FUTURE)**: Design a downstream job that exports
   `fhir_resources` as NDJSON for HAPI `$import`, or writes VARIANT->JSONB
