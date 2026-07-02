@@ -9,17 +9,17 @@
 # MAGIC
 # MAGIC Post-load validation for `ncqai.dev_matthew_giglia_clinical_mart`.
 # MAGIC Run after every full-refresh to confirm:
-# MAGIC - All 10 flows completed with correct row counts
+# MAGIC - All 11 flows completed with correct row counts
 # MAGIC - Zero null PKs, duplicate PKs, and orphan FKs
+# MAGIC - Fact-to-patient FK integrity (all facts)
+# MAGIC - Dimension FK integrity (encounter→practitioner/org/location, condition→encounter, claim→org/location)
 # MAGIC - Fact counts align 1:1 with FHIR Gold source tables
 # MAGIC - Computed column distributions are clinically plausible
 # MAGIC - Observation no-value cohort is understood and expected
-# MAGIC
-# MAGIC Source pipeline run (first clean full-refresh): `f160a6e6-f63f-4d9d-ace9-0c59b15149b0`
 
 # COMMAND ----------
 
-# DBTITLE 1,Row counts, null PKs, dupe PKs, orphan FKs, gold alignment
+# DBTITLE 1,Row counts, null PKs, dupe PKs, orphan FKs, dimension FK integrity, gold alignment
 display(spark.sql("""
 WITH
 
@@ -35,6 +35,7 @@ counts AS (
   UNION ALL SELECT 'fact_procedure',        COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_procedure
   UNION ALL SELECT 'fact_medication_request', COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_medication_request
   UNION ALL SELECT 'fact_immunization',     COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_immunization
+  UNION ALL SELECT 'fact_claim',            COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_claim
 ),
 
 -- 2. Null PKs (includes null patient_natural_key for fact tables)
@@ -49,6 +50,7 @@ null_pks AS (
   UNION ALL SELECT 'fact_procedure',        COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_procedure                     WHERE procedure_natural_key IS NULL OR patient_natural_key IS NULL
   UNION ALL SELECT 'fact_medication_request', COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_medication_request          WHERE medication_request_natural_key IS NULL OR patient_natural_key IS NULL
   UNION ALL SELECT 'fact_immunization',     COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_immunization                  WHERE immunization_natural_key IS NULL OR patient_natural_key IS NULL
+  UNION ALL SELECT 'fact_claim',            COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_claim                         WHERE claim_natural_key IS NULL OR patient_natural_key IS NULL
 ),
 
 -- 3. Duplicate PKs
@@ -60,6 +62,7 @@ dupes AS (
   UNION ALL SELECT 'fact_procedure',        COUNT(*)-COUNT(DISTINCT procedure_natural_key)         FROM ncqai.dev_matthew_giglia_clinical_mart.fact_procedure
   UNION ALL SELECT 'fact_medication_request', COUNT(*)-COUNT(DISTINCT medication_request_natural_key) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_medication_request
   UNION ALL SELECT 'fact_immunization',     COUNT(*)-COUNT(DISTINCT immunization_natural_key)      FROM ncqai.dev_matthew_giglia_clinical_mart.fact_immunization
+  UNION ALL SELECT 'fact_claim',            COUNT(*)-COUNT(DISTINCT claim_natural_key)             FROM ncqai.dev_matthew_giglia_clinical_mart.fact_claim
 ),
 
 -- 4. Orphan FKs (fact patient_natural_key not found in dim_patient)
@@ -82,9 +85,51 @@ orphans AS (
   UNION ALL
   SELECT 'fact_immunization', COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_immunization f
   WHERE NOT EXISTS (SELECT 1 FROM ncqai.dev_matthew_giglia_clinical_mart.dim_patient d WHERE d.patient_natural_key = f.patient_natural_key)
+  UNION ALL
+  SELECT 'fact_claim', COUNT(*) FROM ncqai.dev_matthew_giglia_clinical_mart.fact_claim f
+  WHERE NOT EXISTS (SELECT 1 FROM ncqai.dev_matthew_giglia_clinical_mart.dim_patient d WHERE d.patient_natural_key = f.patient_natural_key)
 ),
 
--- 5. Gold source row counts (mart must match 1:1)
+-- 5. Dimension FK integrity (non-patient FKs — NULL-tolerant, checks populated values only)
+dim_fk_orphans AS (
+  -- fact_encounter → dim_practitioner
+  SELECT 'encounter→practitioner' AS fk_path, COUNT(*) AS orphan_fks
+  FROM ncqai.dev_matthew_giglia_clinical_mart.fact_encounter f
+  WHERE f.practitioner_natural_key IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM ncqai.dev_matthew_giglia_clinical_mart.dim_practitioner d WHERE d.practitioner_natural_key = f.practitioner_natural_key)
+  UNION ALL
+  -- fact_encounter → dim_organization
+  SELECT 'encounter→organization', COUNT(*)
+  FROM ncqai.dev_matthew_giglia_clinical_mart.fact_encounter f
+  WHERE f.organization_natural_key IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM ncqai.dev_matthew_giglia_clinical_mart.dim_organization d WHERE d.organization_natural_key = f.organization_natural_key)
+  UNION ALL
+  -- fact_encounter → dim_location
+  SELECT 'encounter→location', COUNT(*)
+  FROM ncqai.dev_matthew_giglia_clinical_mart.fact_encounter f
+  WHERE f.location_natural_key IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM ncqai.dev_matthew_giglia_clinical_mart.dim_location d WHERE d.location_natural_key = f.location_natural_key)
+  UNION ALL
+  -- fact_condition → fact_encounter
+  SELECT 'condition→encounter', COUNT(*)
+  FROM ncqai.dev_matthew_giglia_clinical_mart.fact_condition f
+  WHERE f.encounter_natural_key IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM ncqai.dev_matthew_giglia_clinical_mart.fact_encounter e WHERE e.encounter_natural_key = f.encounter_natural_key)
+  UNION ALL
+  -- fact_claim → dim_organization
+  SELECT 'claim→organization', COUNT(*)
+  FROM ncqai.dev_matthew_giglia_clinical_mart.fact_claim f
+  WHERE f.organization_natural_key IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM ncqai.dev_matthew_giglia_clinical_mart.dim_organization d WHERE d.organization_natural_key = f.organization_natural_key)
+  UNION ALL
+  -- fact_claim → dim_location
+  SELECT 'claim→location', COUNT(*)
+  FROM ncqai.dev_matthew_giglia_clinical_mart.fact_claim f
+  WHERE f.location_natural_key IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM ncqai.dev_matthew_giglia_clinical_mart.dim_location d WHERE d.location_natural_key = f.location_natural_key)
+),
+
+-- 6. Gold source row counts (mart must match 1:1)
 gold_counts AS (
   SELECT 'patient_gold'           AS tbl, COUNT(*) AS n FROM ncqai.dev_matthew_giglia_fhir.patient_gold
   UNION ALL SELECT 'encounter_gold',        COUNT(*) FROM ncqai.dev_matthew_giglia_fhir.encounter_gold
@@ -93,6 +138,7 @@ gold_counts AS (
   UNION ALL SELECT 'procedure_gold',        COUNT(*) FROM ncqai.dev_matthew_giglia_fhir.procedure_gold
   UNION ALL SELECT 'medication_request_gold', COUNT(*) FROM ncqai.dev_matthew_giglia_fhir.medication_request_gold
   UNION ALL SELECT 'immunization_gold',     COUNT(*) FROM ncqai.dev_matthew_giglia_fhir.immunization_gold
+  UNION ALL SELECT 'claim_gold',            COUNT(*) FROM ncqai.dev_matthew_giglia_fhir.claim_gold
 )
 
 SELECT 'ROW COUNTS'  AS check_type, tbl, n    AS value, NULL AS expected FROM counts
@@ -101,7 +147,9 @@ SELECT 'NULL PKs',   tbl, null_pk,              0            FROM null_pks
 UNION ALL
 SELECT 'DUPE PKs',   tbl, dupe_pks,             0            FROM dupes
 UNION ALL
-SELECT 'ORPHAN FKs', tbl, orphan_fks,           0            FROM orphans
+SELECT 'ORPHAN FKs (patient)', tbl, orphan_fks, 0            FROM orphans
+UNION ALL
+SELECT 'ORPHAN FKs (dimension)', fk_path, orphan_fks, 0     FROM dim_fk_orphans
 UNION ALL
 SELECT 'GOLD SOURCE', tbl, n,                   NULL         FROM gold_counts
 ORDER BY check_type, tbl
@@ -152,6 +200,23 @@ display(spark.sql("""
 
 # COMMAND ----------
 
+# DBTITLE 1,fact_encounter: dimension FK coverage
+# MAGIC %sql
+# MAGIC -- Dimension FK population rates for fact_encounter.
+# MAGIC -- Expected: practitioner ~100%, organization ~89%, location ~88%.
+# MAGIC -- NULLs indicate references that could not be resolved to a dimension row.
+# MAGIC SELECT
+# MAGIC   COUNT(*)                                                                     AS total_encounters,
+# MAGIC   ROUND(COUNT(practitioner_natural_key) * 100.0 / COUNT(*), 1)                AS practitioner_fk_pct,
+# MAGIC   ROUND(COUNT(organization_natural_key) * 100.0 / COUNT(*), 1)                AS organization_fk_pct,
+# MAGIC   ROUND(COUNT(location_natural_key) * 100.0 / COUNT(*), 1)                    AS location_fk_pct,
+# MAGIC   COUNT(*) - COUNT(practitioner_natural_key)                                   AS null_practitioner,
+# MAGIC   COUNT(*) - COUNT(organization_natural_key)                                   AS null_organization,
+# MAGIC   COUNT(*) - COUNT(location_natural_key)                                       AS null_location
+# MAGIC FROM ncqai.dev_matthew_giglia_clinical_mart.fact_encounter
+
+# COMMAND ----------
+
 # DBTITLE 1,fact_condition: chronic/active flags, patient coverage
 # MAGIC %sql
 # MAGIC -- 25-30% chronic expected for a synthetic adult population.
@@ -163,6 +228,38 @@ display(spark.sql("""
 # MAGIC   COUNT(DISTINCT code)                                                   AS distinct_condition_codes,
 # MAGIC   COUNT(DISTINCT code_system)                                            AS distinct_code_systems
 # MAGIC FROM ncqai.dev_matthew_giglia_clinical_mart.fact_condition
+
+# COMMAND ----------
+
+# DBTITLE 1,fact_condition: encounter FK coverage
+# MAGIC %sql
+# MAGIC -- fact_condition -> fact_encounter FK coverage.
+# MAGIC -- Expected: ~100% encounter_natural_key populated (direct urn:uuid match).
+# MAGIC SELECT
+# MAGIC   COUNT(*)                                                                    AS total_conditions,
+# MAGIC   ROUND(COUNT(encounter_natural_key) * 100.0 / COUNT(*), 1)                  AS encounter_fk_pct,
+# MAGIC   COUNT(*) - COUNT(encounter_natural_key)                                     AS null_encounter_fk
+# MAGIC FROM ncqai.dev_matthew_giglia_clinical_mart.fact_condition
+
+# COMMAND ----------
+
+# DBTITLE 1,fact_claim: type breakdown, FK coverage, spend sanity
+# MAGIC %sql
+# MAGIC -- Claim type distribution, FK coverage percentages, and spend sanity.
+# MAGIC -- Expected: professional > pharmacy > institutional by volume.
+# MAGIC -- Organization FK ~89%, location FK ~51% (pharmacy claims have no facility).
+# MAGIC SELECT
+# MAGIC   claim_type_code,
+# MAGIC   COUNT(*)                                                             AS n,
+# MAGIC   ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1)                  AS pct_of_total,
+# MAGIC   ROUND(COUNT(organization_natural_key) * 100.0 / COUNT(*), 1)        AS org_fk_coverage_pct,
+# MAGIC   ROUND(COUNT(location_natural_key) * 100.0 / COUNT(*), 1)            AS loc_fk_coverage_pct,
+# MAGIC   ROUND(SUM(total_value), 2)                                          AS total_spend,
+# MAGIC   ROUND(AVG(total_value), 2)                                          AS avg_claim_value,
+# MAGIC   COUNT(DISTINCT patient_natural_key)                                  AS distinct_patients
+# MAGIC FROM ncqai.dev_matthew_giglia_clinical_mart.fact_claim
+# MAGIC GROUP BY claim_type_code
+# MAGIC ORDER BY n DESC
 
 # COMMAND ----------
 

@@ -226,6 +226,12 @@ dp.create_streaming_table(
         COMMENT 'Dedup key sha2(patient_nk + class + type_code + period_start). Grain = one real-world visit.',
     `patient_natural_key` STRING NOT NULL
         COMMENT 'FK to dim_patient. The patient who had the encounter.',
+    `practitioner_natural_key` STRING
+        COMMENT 'FK to dim_practitioner. The primary participant/provider for this encounter. Resolved via encounter references.participant URL.',
+    `organization_natural_key` STRING
+        COMMENT 'FK to dim_organization. The service provider organization. Resolved via encounter references.serviceProvider URL.',
+    `location_natural_key` STRING
+        COMMENT 'FK to dim_location. The care delivery site. Resolved via encounter references.location URL.',
     `encounter_class` STRING
         COMMENT 'Visit class: AMB (ambulatory), EMER (emergency), IMP (inpatient), HH (home health), VR (virtual).',
     `encounter_type_code` STRING
@@ -278,6 +284,8 @@ dp.create_streaming_table(
         COMMENT 'Dedup key sha2(patient_nk + code + onset_datetime). Grain = one diagnosis event.',
     `patient_natural_key` STRING NOT NULL
         COMMENT 'FK to dim_patient. The patient with this condition.',
+    `encounter_natural_key` STRING
+        COMMENT 'FK to fact_encounter. The encounter during which this condition was recorded. Resolved via _encounter_ref_url on condition_gold.',
     `code` STRING
         COMMENT 'Condition code (SNOMED or ICD-10). Used for cohort definitions and measure denominators.',
     `code_system` STRING
@@ -342,6 +350,8 @@ dp.create_streaming_table(
         COMMENT 'String result (e.g., survey free-text, qualitative results like "positive").',
     `value_code` STRING
         COMMENT 'Coded result value (e.g., blood type A/B/AB/O, pos/neg).',
+    `value_raw` VARIANT
+        COMMENT 'Complete FHIR value[x] as VARIANT. Preserves full structure for complex value types (CodeableConcept, Quantity with comparator, etc.).',
     `effective_datetime` TIMESTAMP
         COMMENT 'When the observation was taken. Primary time dimension for lab/vital trending.',
     `is_abnormal_low` BOOLEAN
@@ -490,6 +500,56 @@ dp.create_auto_cdc_flow(
     target="fact_immunization",
     source="fact_immunization_src",
     keys=["immunization_natural_key"],
+    sequence_by=col("resource_last_updated"),
+    stored_as_scd_type=1,
+)
+
+
+# --- fact_claim ---------------------------------------------------------------
+
+dp.create_streaming_table(
+    name="fact_claim",
+    comment=(
+        "Claim fact — one row per unique insurance claim submission. "
+        "Grain: one claim per patient per billable period. "
+        "Consumer: cost analysis, utilization-based quality measures, payer mix, claims adjudication."
+    ),
+    schema="""
+    `claim_natural_key` STRING NOT NULL
+        COMMENT 'Dedup key (Auto CDC primary key). Grain = one claim submission.',
+    `patient_natural_key` STRING NOT NULL
+        COMMENT 'FK to dim_patient. The patient this claim is for.',
+    `organization_natural_key` STRING
+        COMMENT 'FK to dim_organization. The billing provider organization. Resolved via _provider_ref_url identifier extraction.',
+    `location_natural_key` STRING
+        COMMENT 'FK to dim_location. The facility where services were rendered. Resolved via references.facility URL.',
+    `claim_type_code` STRING
+        COMMENT 'Claim type: institutional, pharmacy, professional.',
+    `claim_type_display` STRING
+        COMMENT 'Human-readable claim type.',
+    `status` STRING
+        COMMENT 'Claim status: active, cancelled, draft, entered-in-error.',
+    `claim_use` STRING
+        COMMENT 'Claim use: claim (payment request), preauthorization, predetermination.',
+    `billable_period_start` TIMESTAMP
+        COMMENT 'Start of the service/billing period. Primary time dimension for claims trending.',
+    `billable_period_end` TIMESTAMP
+        COMMENT 'End of the service/billing period.',
+    `total_value` DOUBLE
+        COMMENT 'Total claimed amount in currency units (typically USD).',
+    `total_currency` STRING
+        COMMENT 'Currency code (typically USD).',
+    `resource_last_updated` TIMESTAMP NOT NULL
+        COMMENT 'Timestamp of most recent source update.'
+    """,
+    table_properties=_MART_TABLE_PROPERTIES,
+    cluster_by=["patient_natural_key", "claim_type_code", "billable_period_start"],
+)
+
+dp.create_auto_cdc_flow(
+    target="fact_claim",
+    source="fact_claim_src",
+    keys=["claim_natural_key"],
     sequence_by=col("resource_last_updated"),
     stored_as_scd_type=1,
 )

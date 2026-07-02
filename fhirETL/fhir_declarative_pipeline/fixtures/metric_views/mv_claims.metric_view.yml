@@ -1,0 +1,246 @@
+version: 1.1
+source: "{catalog}.{clinical_mart_schema}.fact_claim"
+joins:
+  - name: patient
+    source: "{catalog}.{clinical_mart_schema}.dim_patient"
+    "on": source.patient_natural_key = patient.patient_natural_key
+    rely:
+      at_most_one_match: true
+  - name: organization
+    source: "{catalog}.{clinical_mart_schema}.dim_organization"
+    "on": source.organization_natural_key = organization.organization_natural_key
+    rely:
+      at_most_one_match: true
+  - name: location
+    source: "{catalog}.{clinical_mart_schema}.dim_location"
+    "on": source.location_natural_key = location.location_natural_key
+    rely:
+      at_most_one_match: true
+comment: "Claims cost and utilization metrics for financial and payer-mix analysis. Covers claim volume, total spend, and type stratification."
+dimensions:
+  - name: claim_month
+    expr: "DATE_TRUNC('MONTH', billable_period_start)"
+    comment: Month when the billable period began
+    display_name: Claim Month
+    format:
+      type: date
+      date_format: locale_short_month
+      leading_zeros: false
+    synonyms:
+      - billing month
+      - service month
+  - name: claim_year
+    expr: "YEAR(billable_period_start)"
+    comment: Year when the billable period began
+    display_name: Claim Year
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      hide_group_separator: true
+      abbreviation: none
+    synonyms:
+      - billing year
+  - name: claim_type
+    expr: claim_type_code
+    comment: "Claim type: institutional, pharmacy, professional"
+    display_name: Claim Type
+    synonyms:
+      - type of claim
+      - claim category
+  - name: claim_use
+    expr: claim_use
+    comment: "Claim use: claim (payment request), preauthorization, predetermination"
+    display_name: Claim Use
+    synonyms:
+      - use
+      - purpose
+  - name: patient_gender
+    expr: patient.gender
+    comment: Patient gender
+    display_name: Patient Gender
+    synonyms:
+      - gender
+      - sex
+  - name: patient_age_band
+    expr: |-
+      CASE
+        WHEN FLOOR(DATEDIFF(billable_period_start, patient.birth_date) / 365.25) < 18 THEN 'Pediatric (0-17)'
+        WHEN FLOOR(DATEDIFF(billable_period_start, patient.birth_date) / 365.25) BETWEEN 18 AND 39 THEN 'Young Adult (18-39)'
+        WHEN FLOOR(DATEDIFF(billable_period_start, patient.birth_date) / 365.25) BETWEEN 40 AND 64 THEN 'Middle Age (40-64)'
+        ELSE 'Senior (65+)'
+      END
+    comment: Age band of the patient at time of claim
+    display_name: Patient Age Band
+    synonyms:
+      - age group
+      - age range
+  - name: organization_name
+    expr: organization.name
+    comment: Billing provider organization name
+    display_name: Organization
+    synonyms:
+      - provider
+      - billing org
+  - name: location_name
+    expr: location.name
+    comment: Facility where services were rendered
+    display_name: Facility
+    synonyms:
+      - site
+      - care site
+  - name: patient_state
+    expr: patient.address_state
+    comment: Patient state of residence
+    display_name: Patient State
+    synonyms:
+      - state
+      - geography
+measures:
+  - name: total_claims
+    expr: COUNT(claim_natural_key)
+    comment: Total number of claims submitted
+    display_name: Total Claims
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - claim count
+      - number of claims
+  - name: unique_patients
+    expr: COUNT(DISTINCT patient_natural_key)
+    comment: Number of distinct patients with claims
+    display_name: Unique Patients
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - patient count
+      - distinct patients
+  - name: total_spend
+    expr: SUM(total_value)
+    comment: Total claimed dollar amount
+    display_name: Total Spend
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - total cost
+      - total charges
+      - total dollars
+  - name: avg_claim_value
+    expr: AVG(total_value)
+    comment: Average claimed amount per claim
+    display_name: Avg Claim Value
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - average cost per claim
+      - mean claim amount
+  - name: institutional_claims
+    expr: COUNT(claim_natural_key) FILTER (WHERE claim_type_code = 'institutional')
+    comment: Count of institutional (facility/inpatient) claims
+    display_name: Institutional Claims
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - facility claims
+      - inpatient claims
+  - name: institutional_spend
+    expr: SUM(total_value) FILTER (WHERE claim_type_code = 'institutional')
+    comment: Total spend on institutional claims
+    display_name: Institutional Spend
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - facility spend
+      - inpatient cost
+  - name: pharmacy_claims
+    expr: COUNT(claim_natural_key) FILTER (WHERE claim_type_code = 'pharmacy')
+    comment: Count of pharmacy (prescription) claims
+    display_name: Pharmacy Claims
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - rx claims
+      - prescription claims
+  - name: pharmacy_spend
+    expr: SUM(total_value) FILTER (WHERE claim_type_code = 'pharmacy')
+    comment: Total spend on pharmacy claims
+    display_name: Pharmacy Spend
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - rx spend
+      - drug cost
+  - name: professional_claims
+    expr: COUNT(claim_natural_key) FILTER (WHERE claim_type_code = 'professional')
+    comment: Count of professional (office/outpatient) claims
+    display_name: Professional Claims
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+      abbreviation: compact
+    synonyms:
+      - office claims
+      - outpatient claims
+  - name: spend_per_patient
+    expr: MEASURE(total_spend) / NULLIF(MEASURE(unique_patients), 0)
+    comment: Average total spend per distinct patient
+    display_name: Spend per Patient
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - cost per patient
+      - per capita spend
+  - name: unique_organizations
+    expr: COUNT(DISTINCT organization_natural_key)
+    comment: Number of distinct billing organizations
+    display_name: Unique Organizations
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 0
+    synonyms:
+      - org count
+      - provider count
